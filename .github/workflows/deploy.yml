@@ -28,6 +28,12 @@ jobs:
 
       - name: Konfigurasi GitHub Pages
         uses: actions/configure-pages@v5
+        with:
+          # Secara default action ini hanya MEMERIKSA apakah Pages sudah aktif,
+          # dan gagal bila belum — persis kegagalan pada run pertama.
+          # Dengan true, action akan MENGAKTIFKAN Pages sendiri lewat token
+          # workflow (butuh permissions.pages: write, sudah dideklarasikan).
+          enablement: true
 
       - name: Unggah artefak
         uses: actions/upload-pages-artifact@v3
