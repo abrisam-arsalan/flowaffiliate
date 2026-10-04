@@ -468,6 +468,46 @@ select { cursor: pointer; }
 .ai-status.warn { border-left-color: var(--warn); }
 .ai-status strong { color: var(--text); }
 
+/* ============================ PROFIL API ============================== */
+.profile-card {
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-left-color: var(--line);
+  border-radius: var(--radius-sm);
+  padding: .8rem .9rem;
+  margin-bottom: .6rem;
+  background: var(--bg-soft);
+}
+.profile-card.is-active {
+  border-left-color: var(--accent);
+  background: rgba(74, 222, 128, .05);
+}
+.profile-head { margin-bottom: .5rem; }
+.profile-name {
+  font-weight: 700;
+  font-size: .92rem;
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  flex-wrap: wrap;
+}
+.profile-meta {
+  font-size: .76rem;
+  color: var(--text-faint);
+  margin-top: .2rem;
+  word-break: break-all;
+  line-height: 1.6;
+}
+.profile-test-msg {
+  font-size: .76rem;
+  color: var(--text-dim);
+  background: var(--card);
+  border-radius: 6px;
+  padding: .35rem .5rem;
+  margin-bottom: .5rem;
+  word-break: break-word;
+}
+
 /* ============================== TOAST ============================== */
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px);

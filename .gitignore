@@ -9,6 +9,14 @@ _fg-*.txt
 _server.log
 _testout.txt
 
+# ── KRITIS: penyimpanan profil API ──────────────────────────
+# `_ai-profiles.json` memuat SELURUH API key dalam bentuk asli.
+# Jangan pernah menambahkan berkas ini ke repo publik.
+# Server juga sudah menolak menyajikannya lewat HTTP (segmen berawalan `_`),
+# tapi aturan di sini mencegahnya ikut ter-commit.
+_ai-profiles.json
+_ai-profiles.json.tmp
+
 # ── Dependensi ──────────────────────────────────────────────
 node_modules/
 .pnp/

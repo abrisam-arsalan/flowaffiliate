@@ -31,6 +31,7 @@ FA.App = {
     FA.App.setStep(1);
     FA.renderDbStats();
     FA.App.loadAiStatus();
+    if (FA.Profiles) FA.Profiles.init();
 
     // Demo shortcut: ?demo=1 langsung generate contoh.
     var params = new URLSearchParams(location.search);
@@ -110,7 +111,11 @@ FA.App = {
       b.classList.toggle("is-active", b.dataset.view === view);
     });
     if (view === "library") FA.renderLibrary();
-    if (view === "settings") { FA.renderDbStats(); FA.App.loadAiStatus(); }
+    if (view === "settings") {
+      FA.renderDbStats();
+      FA.App.loadAiStatus();
+      if (FA.Profiles) FA.Profiles.load();
+    }
     FA.App.state.view = view;
     window.scrollTo({ top: 0, behavior: "smooth" });
   },
@@ -687,7 +692,6 @@ FA.App = {
   bindSettings: function () {
     var refresh = document.getElementById("refreshAiBtn");
     if (refresh) refresh.addEventListener("click", function () { FA.App.loadAiStatus(); });
-
     var testBtn = document.getElementById("testAiBtn");
     if (testBtn) testBtn.addEventListener("click", function () { FA.App.testAiAnalysis(); });
 
@@ -726,6 +730,10 @@ FA.App = {
       var modelField = document.getElementById("modelField");
       var sel = document.getElementById("visionModel");
 
+      // Simpan status mode uji supaya form profil bisa memperingatkan
+      // bahwa tes koneksi tidak akan memanggil gateway.
+      if (FA.Profiles) FA.Profiles._mock = s.mock === true;
+
       if (s.offline || !s.ok) {
         box.className = "ai-status warn";
         box.innerHTML =
@@ -740,19 +748,32 @@ FA.App = {
       if (!s.configured) {
         box.className = "ai-status warn";
         box.innerHTML =
-          "<strong>Belum dikonfigurasi.</strong><br>" +
-          FA.esc(s.reason || "") +
+          "<strong>Belum ada API yang aktif.</strong><br>" +
+          "Tambahkan profil di bagian <strong>Profil API</strong> di bawah, " +
+          "atau isi <code>.env</code> sebagai cadangan." +
           "<br><span class='hint'>Tanpa AI, aplikasi tetap menghasilkan 6 prompt lengkap.</span>";
         if (modelField) modelField.style.display = "none";
         return;
       }
 
       box.className = "ai-status ok";
+      var srcLabel =
+        s.source === "profile"
+          ? "profil <strong>" + FA.esc(s.profileName || "tersimpan") + "</strong>"
+          : s.source === "env"
+            ? "nilai dari <code>.env</code>"
+            : "belum ada";
+
       box.innerHTML =
-        "<strong>Analisis gambar aktif" + (s.mock ? " (mode uji)" : "") + ".</strong><br>" +
-        "Model default: <code>" + FA.esc(s.model) + "</code>" +
+        "<strong>Analisis gambar " + (s.mock ? "siap (mode uji)" : "aktif") + ".</strong><br>" +
+        "Konfigurasi: " + srcLabel +
+        " &middot; model: <code>" + FA.esc(s.model) + "</code>" +
         (s.baseUrlHost ? " &middot; gateway: <code>" + FA.esc(s.baseUrlHost) + "</code>" : "") +
-        (s.mock ? "<br><span class='hint'>Mode uji: analisis contoh dikembalikan tanpa memanggil jaringan.</span>" : "");
+        (s.mock
+          ? "<br><span class='hint'>Mode uji (<code>AI_MOCK=1</code>): analisis mengembalikan " +
+            "contoh tanpa memanggil jaringan. Tombol <strong>Tes</strong> pada profil tetap " +
+            "menghubungi gateway sungguhan.</span>"
+          : "");
 
       // Isi pemilih model, utamakan model yang tersedia di allowlist server.
       if (modelField && sel) {

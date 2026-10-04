@@ -591,6 +591,39 @@
       FA.Vision.mapStatus({}).models.length === 0);
   })();
 
+  /* --------------------------------------- 18. Status: sumber konfigurasi */
+  group("18. Sumber konfigurasi terpisah dari mode uji");
+  (function () {
+    // Regresi: `source` tidak boleh dilaporkan sebagai "mock", karena itu
+    // menghapus informasi dari mana konfigurasi berasal saat mode uji aktif.
+    var asProfile = FA.Vision.mapStatus({
+      ok: true,
+      vision: {
+        configured: true, mock: true, source: "profile",
+        mockOverrides: true, profileName: "Gateway Utama",
+        model: "glm-5.3-flash", models: ["glm-5.3-flash"],
+      },
+      text: {},
+    });
+    check("source tetap 'profile' meski mode uji aktif",
+      asProfile.source === "profile", asProfile.source);
+    check("nama profil ikut diteruskan", asProfile.profileName === "Gateway Utama");
+    check("flag mockOverrides diteruskan", asProfile.mockOverrides === true);
+    check("flag mock tetap terpisah", asProfile.mock === true);
+
+    var asEnv = FA.Vision.mapStatus({
+      ok: true, vision: { configured: true, mock: false, source: "env", model: "kimi-k3" }, text: {},
+    });
+    check("membedakan sumber .env dari profil",
+      asEnv.source === "env" && asEnv.mock === false);
+
+    var none = FA.Vision.mapStatus({ ok: true, vision: { configured: false }, text: {} });
+    check("sumber 'none' tidak crash dan tidak diklaim aktif",
+      none.source === "none" && none.configured === false);
+    check("suggestedModels diteruskan",
+      FA.Vision.mapStatus({ suggestedModels: ["a", "b"] }).suggestedModels.length === 2);
+  })();
+
   /* --------------------------------------- Ringkasan */
   var out = document.getElementById("out");
   var html = "";

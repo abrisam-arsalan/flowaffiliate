@@ -131,11 +131,15 @@ material, dan tulisan pada label ikut masuk ke prompt. Perbedaannya nyata:
 
 ### Mengaktifkan
 
+Ada dua cara. **Cara pertama jauh lebih praktis** dan mendukung banyak konfigurasi.
+
+**Lewat aplikasi (disarankan):** buka tab **Pengaturan → Profil API → + Tambah profil**, isi Base URL, API key, dan model, lalu klik **Simpan profil**. Profil langsung aktif — **tidak perlu menjalankan ulang server**.
+
+**Lewat `.env` (cadangan):** berguna untuk deployment atau bila kamu lebih suka berkas.
+
 ```bash
 Copy-Item .env.example .env
 ```
-
-Lalu isi `.env`:
 
 ```ini
 AI_BASE_URL=https://gateway.example.com/v1
@@ -144,8 +148,38 @@ AI_VISION_MODEL=glm-5.3-flash
 AI_VISION_MODELS=glm-5.3-flash,kimi-k3,mimo-v2.6-pro,gpt-5.6
 ```
 
-Jalankan ulang `bun run server.ts`, lalu buka tab **Pengaturan** untuk memilih
-model dan menguji koneksi.
+### Beberapa profil sekaligus
+
+Kamu bisa menyimpan lebih dari satu konfigurasi API dan berpindah kapan saja:
+
+- **Gateway murah** untuk uji coba dan iterasi cepat.
+- **Gateway mahal** untuk produk yang sulit dikenali.
+- **Cadangan** untuk berpindah saat kuota satu gateway habis.
+
+Yang aktif langsung dipakai tanpa menjalankan ulang server. Urutan prioritasnya:
+**profil aktif → nilai `.env` → analisis AI mati** (aplikasi kembali ke heuristik
+kata kunci dan tetap menghasilkan 6 prompt).
+
+Tombol **Tes** pada setiap profil menghubungi gateway sungguhan, jadi ia tetap
+berguna meski `AI_MOCK=1` — kamu bisa memastikan Base URL dan key benar sebelum
+memakainya. Tombol **Tes baca gambar** sekaligus memastikan modelnya benar-benar
+Vision, bukan model teks.
+
+### Keamanan penyimpanan
+
+Profil disimpan di `_ai-profiles.json` di folder aplikasi, di mesin kamu.
+
+| Perlindungan | Cara kerjanya |
+|---|---|
+| Tidak bisa diunduh | Server statis menolak semua path berawalan `_` → `HTTP 404` |
+| Tidak ikut ter-commit | Sudah masuk `.gitignore` |
+| Tidak sampai ke browser | Server hanya mengirim versi tersamarkan (`sk-••••••3456`) |
+| Tidak ditulis ulang | Saat mengubah profil, kolom key boleh dikosongkan untuk mempertahankan key lama |
+| Tidak korup | Ditulis ke berkas sementara lalu diganti, bukan ditimpa langsung |
+
+Ini alasan key **tidak** disimpan di `localStorage`: key di browser harus dikirim
+ulang pada setiap permintaan dan bisa dicuri lewat XSS. Dengan disimpan di server,
+key hanya melintas sekali saat kamu klik Simpan.
 
 ### Kenapa lewat server, bukan langsung dari browser
 
@@ -192,6 +226,7 @@ di tab Pengaturan bila kamu menginginkan narasi yang lebih bervariasi.
 |---|---|
 | F-01 Upload produk | ✅ drag-drop, validasi format & ukuran, maks 5 file |
 | F-02 Product Analyzer | ✅ dua mode: analisis gambar via AI (opsional), atau heuristik keyword saat AI mati |
+| — | ✅ **profil API tersimpan, bisa lebih dari satu, ganti tanpa restart** |
 | F-03 Brief Form | ✅ dengan kolom opsional yang bisa dibuka |
 | F-04 Playbook Selector | ✅ 7 playbook, bisa diganti manual |
 | F-05 Prompt Generator 6 Scene | ✅ 7 blok wajib per scene |
@@ -213,7 +248,9 @@ kesehatan absolut, **proxy AI dengan allowlist model**, dan **mode uji**
 
 PRD §8.5 mencantumkan "API routes" yang dulu tidak bisa diwujudkan karena
 aplikasi berjalan tanpa server. Sejak proxy AI ditambahkan, bagian itu terpenuhi:
-`GET /api/status`, `POST /api/vision`, `POST /api/enrich`.
+`GET /api/status`, `POST /api/vision`, `POST /api/enrich`, plus pengelolaan profil
+di `GET/POST/DELETE /api/profiles`, `POST /api/profiles/activate`, dan
+`POST /api/profiles/test`.
 
 ---
 
@@ -267,18 +304,25 @@ Halaman /demo dan /test tersedia di bawah URL yang sama.
 
 ## Riwayat pengujian
 
-Test suite mencakup **162 pemeriksaan**, termasuk seluruh **84 kombinasi**
+Test suite mencakup **169 pemeriksaan**, termasuk seluruh **84 kombinasi**
 (7 playbook × 3 pacing × 4 platform). Semua lolos.
 
 Yang diverifikasi: struktur 7 blok, aturan single-shot, batas kata dialog &
 teks layar, konsistensi blok continuity, tidak ada placeholder bocor, durasi
 valid (4/6/8/10s), determinisme seed, round-trip library, deteksi kategori,
 pemilihan hook, normalisasi keluaran model yang berantakan, pengaruh analisis
-gambar terhadap isi prompt, dan penyaring klaim absolut.
+gambar terhadap isi prompt, pemisahan sumber konfigurasi dari mode uji, dan
+penyaring klaim absolut.
+
+Alur profil API juga diuji lewat HTTP dan lewat UI sungguhan: menyimpan dua
+profil, berpindah profil tanpa menjalankan ulang server, fallback ke `.env`
+saat tidak ada profil aktif, dan memastikan **API key asli tidak pernah muncul
+di DOM maupun di respons server** (hanya versi tersamarkan). Berkas
+`_ai-profiles.json` terbukti ditolak `HTTP 404` sehingga tidak bisa diunduh.
 
 Jalur kegagalan juga diuji secara nyata, bukan diasumsikan: dengan gateway AI
-yang tidak bisa dihubungi (`HTTP 502`), aplikasi tetap menghasilkan 6 prompt
-yang lolos seluruh validasi.
+yang tidak bisa dihubungi (`HTTP 502` / `ENOTFOUND`), aplikasi tetap
+menghasilkan 6 prompt yang lolos seluruh validasi.
 
 ### Bug nyata yang ditemukan dan diperbaiki
 
@@ -295,5 +339,11 @@ yang lolos seluruh validasi.
    model di UI selalu hanya menampilkan satu opsi meski server mengirim empat.
 6. Kalimat blok `[SETTING & LIGHTING]` dimulai huruf kecil karena template
    playbook memang ditulis huruf kecil.
+7. `source` konfigurasi dilaporkan sebagai `"mock"` saat mode uji aktif,
+   sehingga UI kehilangan informasi dari mana konfigurasi berasal — panel
+   sempat menampilkan "analisis AI mati" padahal `.env` sudah terisi. Flag
+   mode uji kini terpisah dari sumber konfigurasi. Bug yang sama muncul di
+   **dua** endpoint (`/api/status` dan `/api/profiles`) dan hanya ketahuan
+   karena UI-nya diuji, bukan hanya API-nya.
 
-Bug 4 dan 5 hanya ketahuan karena diuji, bukan karena membaca ulang kode.
+Bug 4, 5, dan 7 hanya ketahuan karena diuji, bukan karena membaca ulang kode.

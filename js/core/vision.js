@@ -38,8 +38,15 @@ FA.Vision = {
       // satu opsi saja meski server mengirim daftar lengkap.
       models: Array.isArray(v.models) ? v.models.slice() : (v.model ? [v.model] : []),
       baseUrlHost: v.baseUrlHost || "",
+      // Menentukan label "profil X" vs "nilai dari .env" di panel status.
+      // Terpisah dari `mock`: mode uji tidak menghapus informasi asal konfigurasi.
+      source: v.source || "none",
+      mockOverrides: !!v.mockOverrides,
+      profileId: v.profileId || null,
+      profileName: v.profileName || "",
       reason: v.reason || null,
       textModel: (d && d.text && d.text.model) || "",
+      suggestedModels: Array.isArray(d && d.suggestedModels) ? d.suggestedModels.slice() : [],
     };
   },
 

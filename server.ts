@@ -1,79 +1,45 @@
 /**
- * FlowAffiliate — server lokal + proxy AI.
+ * FlowAffiliate — server lokal + proxy AI + pengelolaan profil API.
  *
- * Tugasnya dua:
+ * Tugasnya tiga:
  *   1. Menyajikan berkas statis aplikasi (tanpa build step, tanpa dependensi).
  *   2. Menjadi PROXY ke gateway AI untuk analisis gambar dan penulisan narasi.
+ *   3. Menyimpan beberapa profil API yang bisa diatur dari halaman Pengaturan.
  *
  * KENAPA HARUS PROXY, BUKAN DIPANGGIL LANGSUNG DARI BROWSER:
  *   - Gateway AI umumnya tidak mengirim header CORS, jadi `fetch` dari halaman
  *     akan diblokir browser.
  *   - Kalau aplikasi dibuka lewat `file://`, origin-nya `null` dan hampir semua
  *     gateway menolaknya.
- *   - Menaruh API key di browser berarti key ikut terkirim ke setiap pengguna
- *     dan tersimpan di localStorage. Dengan proxy, key TIDAK PERNAH meninggalkan
- *     mesin ini — browser hanya bicara ke localhost.
+ *   - API key disimpan di server, bukan di browser. Key hanya melintas sekali
+ *     saat Anda klik Simpan, lalu tetap di mesin ini — tidak ikut terkirim pada
+ *     setiap permintaan dan tidak bisa dicuri lewat XSS.
  *
- * Konfigurasi lewat `.env` (Bun memuatnya otomatis):
- *   AI_BASE_URL       contoh: https://gateway.example.com/v1
- *   AI_API_KEY        API key gateway
- *   AI_VISION_MODEL   default: glm-5.3-flash   (model yang bisa membaca gambar)
- *   AI_TEXT_MODEL     default: mimo-v2.5-pro   (untuk menulis ulang narasi)
- *   AI_MOCK=1         mode uji: balas analisis contoh tanpa memanggil jaringan
+ * Konfigurasi dibaca ULANG setiap permintaan (lihat resolveConfig), sehingga
+ * menyimpan profil di UI langsung berlaku tanpa menjalankan ulang server.
  *
  * Jalankan:  bun run server.ts
  * Lalu buka: http://localhost:3000
  */
 
 import { join, normalize, extname } from "node:path";
+import {
+  listProfiles,
+  upsertProfile,
+  removeProfile,
+  setActive,
+  getProfile,
+  recordTest,
+  resolveConfig,
+  isMock,
+  normalizeBaseUrl,
+  SUGGESTED_VISION_MODELS,
+  type EffectiveConfig,
+} from "./ai-profiles";
 
 const ROOT = import.meta.dir;
 const PORT = Number(process.env.PORT ?? 3000);
 const HOST = process.env.HOST ?? "localhost";
-
-/* ═══════════════════════════ Konfigurasi AI ═══════════════════════════ */
-
-const AI_BASE_URL = (process.env.AI_BASE_URL ?? "").replace(/\/+$/, "");
-const AI_API_KEY = process.env.AI_API_KEY ?? "";
-const AI_VISION_MODEL = process.env.AI_VISION_MODEL ?? "glm-5.3-flash";
-const AI_TEXT_MODEL = process.env.AI_TEXT_MODEL ?? "mimo-v2.5-pro";
-const AI_MOCK = process.env.AI_MOCK === "1";
-const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS ?? 60000);
-
-/**
- * Daftar model vision yang BOLEH diminta browser.
- *
- * Browser boleh memilih model (supaya bisa menukar kualitas vs biaya tanpa
- * mengedit .env dan restart), tapi TIDAK boleh menentukan model sembarangan:
- * tanpa allowlist ini, klien bisa menyuruh server memanggil model apa pun
- * yang ada di gateway. Kalau AI_VISION_MODELS tidak diisi, hanya model
- * default yang diizinkan.
- */
-const AI_VISION_MODELS: string[] = (() => {
-  const fromEnv = (process.env.AI_VISION_MODELS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return fromEnv.length ? fromEnv : [AI_VISION_MODEL];
-})();
-
-/** Pilih model yang diminta bila diizinkan, jika tidak pakai default. */
-function resolveVisionModel(requested: unknown): string {
-  const want = typeof requested === "string" ? requested.trim() : "";
-  if (want && AI_VISION_MODELS.includes(want)) return want;
-  return AI_VISION_MODEL;
-}
-
-/** Nama host saja — jangan pernah bocorkan key atau URL lengkap ke browser. */
-function hostOf(u: string): string {
-  try {
-    return new URL(u).host;
-  } catch {
-    return u ? "(URL tidak valid)" : "";
-  }
-}
-
-const aiConfigured = () => Boolean(AI_BASE_URL && AI_API_KEY);
 
 /* ═══════════════════════════ Prompt analisis ══════════════════════════ */
 
@@ -112,7 +78,7 @@ Aturan:
 - Kalau tulisan pada kemasan tidak terbaca, kosongkan labelText. JANGAN mengarang merek.
 - productName dan productDescription pakai BAHASA INGGRIS kecuali nama merek aslinya.`;
 
-/** Instruksi untuk menulis ulang narasi (dipakai bila mode AI enrichment aktif). */
+/** Instruksi untuk menulis ulang narasi. */
 function buildEnrichPrompt(
   productName: string,
   category: string,
@@ -150,21 +116,25 @@ function buildEnrichPrompt(
 
 type ChatMessage = { role: string; content: unknown };
 
-/** Panggil endpoint chat completions yang kompatibel dengan OpenAI. */
+/**
+ * Panggil endpoint chat completions yang kompatibel dengan OpenAI.
+ * Konfigurasi diberikan sebagai parameter karena bisa berubah kapan saja.
+ */
 async function callGateway(
+  cfg: { baseUrl: string; apiKey: string; timeoutMs: number },
   model: string,
   messages: ChatMessage[],
   jsonMode: boolean,
 ): Promise<{ text: string; usage: unknown }> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), AI_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), cfg.timeoutMs || 60000);
 
   try {
-    const res = await fetch(`${AI_BASE_URL}/chat/completions`, {
+    const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${AI_API_KEY}`,
+        Authorization: `Bearer ${cfg.apiKey}`,
       },
       body: JSON.stringify({
         model,
@@ -179,7 +149,6 @@ async function callGateway(
     const raw = await res.text();
 
     if (!res.ok) {
-      // Teruskan pesan asli gateway — jauh lebih berguna daripada "gagal".
       throw new Error(`gateway HTTP ${res.status}: ${raw.slice(0, 400)}`);
     }
 
@@ -191,9 +160,7 @@ async function callGateway(
     }
 
     const text: string =
-      data?.choices?.[0]?.message?.content ??
-      data?.choices?.[0]?.text ??
-      "";
+      data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? "";
 
     if (!text) throw new Error("gateway tidak mengembalikan konten");
 
@@ -259,7 +226,7 @@ const MOCK_ANALYSIS = {
   mock: true,
 };
 
-/* ═════════════════════════════ Handler API ════════════════════════════ */
+/* ═════════════════════════════ Utilitas HTTP ══════════════════════════ */
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -271,34 +238,199 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-/** GET /api/status — dipakai UI untuk menampilkan kesiapan AI. */
+async function readJson(req: Request): Promise<any | null> {
+  try {
+    return await req.json();
+  } catch {
+    return null;
+  }
+}
+
+/** Nama host saja — jangan pernah bocorkan key atau URL lengkap ke browser. */
+function hostOf(u: string): string {
+  try {
+    return new URL(u).host;
+  } catch {
+    return u ? "(URL tidak valid)" : "";
+  }
+}
+
+/** PNG 1x1 untuk menguji apakah model benar-benar bisa membaca gambar. */
+const TINY_PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==";
+
+/* ═════════════════════════ Handler API ════════════════════════════════ */
+
+/** GET /api/status — kesiapan AI + ringkasan profil aktif. */
 function handleStatus(): Response {
+  const cfg = resolveConfig();
+  const { profiles, activeId } = listProfiles();
+  const mock = isMock();
+
+  const configured = cfg.source !== "none" || mock;
+
   return json({
     ok: true,
     vision: {
-      configured: aiConfigured() || AI_MOCK,
-      mock: AI_MOCK,
-      model: AI_VISION_MODEL,
-      models: AI_VISION_MODELS,
-      baseUrlHost: hostOf(AI_BASE_URL),
-      reason: AI_MOCK
-        ? "Mode uji aktif (AI_MOCK=1)."
-        : aiConfigured()
-          ? null
-          : "AI_BASE_URL atau AI_API_KEY belum diisi di .env",
+      configured,
+      mock,
+      model: cfg.visionModel,
+      models: cfg.visionModels.length ? cfg.visionModels : [cfg.visionModel],
+      baseUrlHost: hostOf(cfg.baseUrl),
+      // `source` melaporkan ASAL konfigurasi yang sebenarnya (profil atau .env),
+      // terpisah dari flag `mock`. Kalau digabung, UI kehilangan informasi
+      // dari mana konfigurasi berasal saat mode uji aktif.
+      source: cfg.source,
+      mockOverrides: mock && cfg.source !== "none",
+      profileId: cfg.profileId ?? null,
+      profileName: cfg.profileName ?? null,
+      reason: mock
+        ? "Mode uji aktif (AI_MOCK=1): analisis memakai contoh tanpa memanggil jaringan."
+        : cfg.source === "none"
+          ? "Belum ada profil API yang aktif. Tambahkan di halaman Pengaturan."
+          : null,
     },
-    text: { model: AI_TEXT_MODEL },
+    text: { model: cfg.textModel },
+    profiles: { count: profiles.length, activeId },
+    suggestedModels: SUGGESTED_VISION_MODELS,
   });
+}
+
+/** GET /api/profiles — daftar profil (key disamarkan). */
+function handleListProfiles(): Response {
+  const data = listProfiles();
+  const cfg = resolveConfig();
+  return json({
+    ok: true,
+    ...data,
+    effective: {
+      // Sama seperti /api/status: `source` melaporkan asal konfigurasi yang
+      // sebenarnya, dan `mock` berdiri sendiri. Kalau digabung, UI kehilangan
+      // informasi asal konfigurasi dan menampilkan pesan yang salah.
+      source: cfg.source,
+      mock: isMock(),
+      profileId: cfg.profileId ?? null,
+      profileName: cfg.profileName ?? null,
+      model: cfg.visionModel,
+      textModel: cfg.textModel,
+      baseUrlHost: hostOf(cfg.baseUrl),
+    },
+    suggestedModels: SUGGESTED_VISION_MODELS,
+  });
+}
+
+/** POST /api/profiles — tambah atau ubah profil. */
+async function handleSaveProfile(req: Request): Promise<Response> {
+  const body = await readJson(req);
+  if (!body) return json({ ok: false, error: "Body harus JSON." }, 400);
+  const r = upsertProfile(body);
+  if (!r.ok) return json({ ok: false, error: r.error }, 400);
+  // Langsung aktifkan bila ini profil pertama.
+  const { activeId } = listProfiles();
+  return json({ ok: true, profile: r.profile, activeId });
+}
+
+/** DELETE /api/profiles?id=... */
+function handleDeleteProfile(url: URL): Response {
+  const id = url.searchParams.get("id") ?? "";
+  if (!id) return json({ ok: false, error: "Parameter id wajib." }, 400);
+  const ok = removeProfile(id);
+  if (!ok) return json({ ok: false, error: "Profil tidak ditemukan." }, 404);
+  return json({ ok: true, ...listProfiles() });
+}
+
+/** POST /api/profiles/activate — jadikan profil aktif. */
+async function handleActivate(req: Request): Promise<Response> {
+  const body = await readJson(req);
+  if (!body) return json({ ok: false, error: "Body harus JSON." }, 400);
+
+  const id = body.id === null ? null : String(body.id ?? "");
+  const ok = setActive(id);
+  if (!ok) return json({ ok: false, error: "Profil tidak ditemukan." }, 404);
+
+  const cfg = resolveConfig();
+  return json({
+    ok: true,
+    activeId: id,
+    effective: { source: cfg.source, model: cfg.visionModel, profileName: cfg.profileName ?? null },
+  });
+}
+
+/**
+ * POST /api/profiles/test — uji koneksi ke gateway.
+ *
+ * Menerima `{id}` (profil tersimpan) ATAU `{baseUrl, apiKey, visionModel}`
+ * (draft yang belum disimpan), supaya bisa dites sebelum disimpan.
+ * Dengan `{withImage: true}` sekaligus memastikan model bisa membaca gambar.
+ */
+async function handleTestProfile(req: Request): Promise<Response> {
+  const body = await readJson(req);
+  if (!body) return json({ ok: false, error: "Body harus JSON." }, 400);
+
+  let baseUrl = "";
+  let apiKey = "";
+  let visionModel = "";
+  let timeoutMs = 30000;
+  let profileId = "";
+
+  if (body.id) {
+    const p = getProfile(String(body.id));
+    if (!p) return json({ ok: false, error: "Profil tidak ditemukan." }, 404);
+    baseUrl = p.baseUrl;
+    apiKey = p.apiKey;
+    visionModel = p.visionModel;
+    timeoutMs = p.timeoutMs;
+    profileId = p.id;
+  } else {
+    baseUrl = normalizeBaseUrl(body.baseUrl ?? "");
+    apiKey = String(body.apiKey ?? "").trim();
+    visionModel = String(body.visionModel ?? "").trim() || "glm-5.3-flash";
+  }
+
+  if (!baseUrl || !apiKey) {
+    return json({ ok: false, error: "Base URL dan API key wajib diisi." }, 400);
+  }
+
+  const withImage = body.withImage === true;
+  const cfg = { baseUrl, apiKey, timeoutMs: Math.min(timeoutMs, 30000) };
+
+  const messages: ChatMessage[] = withImage
+    ? [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Balas dengan satu kata: OK" },
+            { type: "image_url", image_url: { url: TINY_PNG } },
+          ],
+        },
+      ]
+    : [{ role: "user", content: "Balas dengan satu kata: OK" }];
+
+  try {
+    const started = Date.now();
+    const { text } = await callGateway(cfg, visionModel, messages, false);
+    const ms = Date.now() - started;
+
+    const msg = withImage
+      ? `Terhubung dan gambar terbaca (${ms} ms). Jawaban: ${text.slice(0, 40)}`
+      : `Terhubung (${ms} ms). Jawaban: ${text.slice(0, 40)}`;
+
+    if (profileId) recordTest(profileId, true, msg);
+    return json({ ok: true, ms, withImage, model: visionModel, reply: text.slice(0, 120), message: msg });
+  } catch (err: any) {
+    const m = String(err?.message ?? err);
+    const msg = /abort/i.test(m)
+      ? "Gateway tidak merespons sebelum batas waktu."
+      : m;
+    if (profileId) recordTest(profileId, false, msg);
+    return json({ ok: false, error: msg, withImage, model: visionModel }, 200);
+  }
 }
 
 /** POST /api/vision — analisis gambar produk. */
 async function handleVision(req: Request): Promise<Response> {
-  let body: any;
-  try {
-    body = await req.json();
-  } catch {
-    return json({ error: "Body harus JSON." }, 400);
-  }
+  const body = await readJson(req);
+  if (!body) return json({ error: "Body harus JSON." }, 400);
 
   const images: string[] = Array.isArray(body?.images) ? body.images : [];
   if (!images.length) return json({ error: "Tidak ada gambar yang dikirim." }, 400);
@@ -312,18 +444,23 @@ async function handleVision(req: Request): Promise<Response> {
     }
   }
 
-  if (AI_MOCK) return json({ analysis: MOCK_ANALYSIS, usage: null, model: "mock" });
+  if (isMock()) return json({ analysis: MOCK_ANALYSIS, usage: null, model: "mock" });
 
-  if (!aiConfigured()) {
+  const cfg = resolveConfig();
+  if (cfg.source === "none") {
     return json(
       {
         error:
-          "AI belum dikonfigurasi. Isi AI_BASE_URL dan AI_API_KEY di file .env, " +
-          "lalu jalankan ulang server.",
+          "Belum ada profil API yang aktif. Buka halaman Pengaturan untuk " +
+          "menambahkan Base URL dan API key.",
       },
       503,
     );
   }
+
+  // Model dipilih browser, tapi divalidasi terhadap allowlist profil.
+  const want = typeof body?.model === "string" ? body.model.trim() : "";
+  const model = want && cfg.visionModels.includes(want) ? want : cfg.visionModel;
 
   const userContent: unknown[] = [
     {
@@ -335,11 +472,9 @@ async function handleVision(req: Request): Promise<Response> {
     ...images.map((url) => ({ type: "image_url", image_url: { url } })),
   ];
 
-  // Model dipilih browser, tapi divalidasi terhadap allowlist.
-  const model = resolveVisionModel(body?.model);
-
   try {
     const { text, usage } = await callGateway(
+      cfg,
       model,
       [
         { role: "system", content: VISION_SYSTEM_PROMPT },
@@ -356,7 +491,7 @@ async function handleVision(req: Request): Promise<Response> {
       {
         error:
           status === 504
-            ? `Gateway tidak merespons dalam ${Math.round(AI_TIMEOUT_MS / 1000)} detik.`
+            ? `Gateway tidak merespons dalam ${Math.round(cfg.timeoutMs / 1000)} detik.`
             : `Gagal menganalisis gambar: ${msg}`,
       },
       status,
@@ -366,28 +501,21 @@ async function handleVision(req: Request): Promise<Response> {
 
 /** POST /api/enrich — tulis ulang narasi memakai model teks. */
 async function handleEnrich(req: Request): Promise<Response> {
-  let body: any;
-  try {
-    body = await req.json();
-  } catch {
-    return json({ error: "Body harus JSON." }, 400);
-  }
+  const body = await readJson(req);
+  if (!body) return json({ error: "Body harus JSON." }, 400);
 
   const scenes = Array.isArray(body?.scenes) ? body.scenes : [];
   if (!scenes.length) return json({ error: "Tidak ada scene yang dikirim." }, 400);
 
-  if (AI_MOCK) {
+  if (isMock()) {
     return json({
-      scenes: scenes.map((s: any) => ({
-        index: s.index,
-        dialogue: s.current,
-        onscreen: "",
-      })),
+      scenes: scenes.map((s: any) => ({ index: s.index, dialogue: s.current, onscreen: "" })),
       model: "mock",
     });
   }
 
-  if (!aiConfigured()) return json({ error: "AI belum dikonfigurasi." }, 503);
+  const cfg = resolveConfig();
+  if (cfg.source === "none") return json({ error: "Belum ada profil API yang aktif." }, 503);
 
   const prompt = buildEnrichPrompt(
     String(body?.productName ?? "-"),
@@ -402,12 +530,8 @@ async function handleEnrich(req: Request): Promise<Response> {
   );
 
   try {
-    const { text } = await callGateway(
-      AI_TEXT_MODEL,
-      [{ role: "user", content: prompt }],
-      true,
-    );
-    return json({ ...extractJson(text), model: AI_TEXT_MODEL });
+    const { text } = await callGateway(cfg, cfg.textModel, [{ role: "user", content: prompt }], true);
+    return json({ ...extractJson(text), model: cfg.textModel });
   } catch (err: any) {
     return json({ error: `Gagal menyusun narasi: ${String(err?.message ?? err)}` }, 502);
   }
@@ -448,14 +572,14 @@ const MIME: Record<string, string> = {
 
 /** Berkas internal yang tidak boleh terservis lewat HTTP. */
 const HIDDEN = /^\./;      // .git, .gitignore, .github, .env
-const INTERNAL = /^_/;     // _srv-out.txt, _srv-err.txt, _srv.pid, dll.
+const INTERNAL = /^_/;     // _ai-profiles.json, _srv-out.txt, _srv.pid
 const LOGFILE = /\.log$/i; // *.log
 
 /**
  * Tolak path yang menunjuk ke berkas internal.
  *
- * `.gitignore` hanya melindungi GIT — ia tidak memengaruhi layer HTTP sama
- * sekali. Tanpa pemeriksaan ini, `/.env` (berisi API key) akan ikut terservis.
+ * Ini yang melindungi `_ai-profiles.json` (berisi semua API key) dan `.env`.
+ * `.gitignore` hanya melindungi GIT dan tidak berpengaruh pada layer HTTP.
  */
 function isBlockedPath(pathname: string): boolean {
   const segments = pathname.split(/[\\/]+/).filter(Boolean);
@@ -494,9 +618,17 @@ const server = Bun.serve({
 
     /* --- API --- */
     if (pathname.startsWith("/api/")) {
-      if (pathname === "/api/status" && req.method === "GET") return handleStatus();
-      if (pathname === "/api/vision" && req.method === "POST") return handleVision(req);
-      if (pathname === "/api/enrich" && req.method === "POST") return handleEnrich(req);
+      const m = req.method;
+
+      if (pathname === "/api/status" && m === "GET") return handleStatus();
+      if (pathname === "/api/profiles" && m === "GET") return handleListProfiles();
+      if (pathname === "/api/profiles" && m === "POST") return handleSaveProfile(req);
+      if (pathname === "/api/profiles" && m === "DELETE") return handleDeleteProfile(url);
+      if (pathname === "/api/profiles/activate" && m === "POST") return handleActivate(req);
+      if (pathname === "/api/profiles/test" && m === "POST") return handleTestProfile(req);
+      if (pathname === "/api/vision" && m === "POST") return handleVision(req);
+      if (pathname === "/api/enrich" && m === "POST") return handleEnrich(req);
+
       return json({ error: `Rute API tidak dikenal: ${pathname}` }, 404);
     }
 
@@ -544,11 +676,13 @@ const server = Bun.serve({
 
 /* ═════════════════════════════ Banner ═════════════════════════════════ */
 
-const aiLine = AI_MOCK
-  ? "AKTIF (mode uji, tanpa jaringan)"
-  : aiConfigured()
-    ? `siap — vision: ${AI_VISION_MODEL} @ ${hostOf(AI_BASE_URL)}`
-    : "belum dikonfigurasi (isi .env)";
+function bannerAiLine(): string {
+  if (isMock()) return "AKTIF (mode uji, tanpa jaringan)";
+  const cfg = resolveConfig();
+  if (cfg.source === "none") return "belum ada profil aktif (atur di halaman Pengaturan)";
+  const who = cfg.source === "profile" ? `profil "${cfg.profileName}"` : "dari .env";
+  return `siap — ${who}, vision: ${cfg.visionModel} @ ${hostOf(cfg.baseUrl)}`;
+}
 
 console.log("");
 console.log("  FlowAffiliate — server lokal berjalan");
@@ -556,7 +690,8 @@ console.log("  ─────────────────────�
 console.log(`  Aplikasi   :  http://${HOST}:${PORT}/`);
 console.log(`  Demo       :  http://${HOST}:${PORT}/demo`);
 console.log(`  Test suite :  http://${HOST}:${PORT}/test`);
-console.log(`  Analisis AI:  ${aiLine}`);
+console.log(`  Pengaturan :  http://${HOST}:${PORT}/#settings`);
+console.log(`  Analisis AI:  ${bannerAiLine()}`);
 console.log("");
 console.log("  Tekan Ctrl+C untuk berhenti.");
 console.log("");

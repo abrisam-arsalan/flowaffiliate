@@ -250,8 +250,8 @@
         <label for="visionModel">Model analisis gambar</label>
         <select id="visionModel"></select>
         <p class="hint">
-          Angka dalam tanda kurung adalah pengganda biaya dari daftar modelmu.
-          Model teks tidak bisa dipakai di sini karena tidak dapat membaca gambar.
+          Hanya model yang bisa membaca gambar. Angka pengganda biaya ada di
+          daftar profil di bawah.
         </p>
       </div>
 
@@ -272,24 +272,102 @@
       </label>
     </div>
 
+    <!-- ================= PROFIL API ================= -->
     <div class="card">
-      <h2 class="card-title">Cara mengaktifkan</h2>
+      <div class="block-head">
+        <h2 class="card-title" style="margin:0">Profil API</h2>
+        <button class="btn btn-primary btn-sm" id="newProfileBtn" type="button">+ Tambah profil</button>
+      </div>
       <p class="muted">
-        API key <strong>tidak disimpan di browser</strong>. Key hanya dibaca oleh server
-        lokal dari file <code>.env</code>, sehingga tidak pernah terkirim ke halaman
-        atau tersimpan di localStorage.
+        Kamu bisa menyimpan <strong>lebih dari satu</strong> konfigurasi API dan berpindah
+        kapan saja. Yang aktif langsung dipakai — tidak perlu menjalankan ulang server.
       </p>
-      <ol class="guide-list">
-        <li>Salin template: <code>Copy-Item .env.example .env</code></li>
-        <li>Isi <code>AI_BASE_URL</code>, <code>AI_API_KEY</code>, dan <code>AI_VISION_MODEL</code>.</li>
-        <li>Isi <code>AI_VISION_MODELS</code> dengan daftar model vision yang boleh dipilih dari UI, dipisah koma.</li>
-        <li>Jalankan ulang <code>bun run server.ts</code>, lalu kembali ke halaman ini.</li>
-      </ol>
-      <p class="hint">
-        <code>.env</code> sudah masuk <code>.gitignore</code>, jadi key kamu tidak akan
-        ikut ter-commit. Ingin mencoba alur tanpa memakai kuota? Set
-        <code>AI_MOCK=1</code>.
-      </p>
+      <div id="profileList"></div>
+    </div>
+
+    <!-- ================= FORM PROFIL ================= -->
+    <div class="card hidden" id="profileFormCard">
+      <h2 class="card-title" id="profileFormTitle">Tambah profil API</h2>
+
+      <div class="field">
+        <label for="pName">Nama profil <span class="req">*</span></label>
+        <input id="pName" type="text" placeholder="cth: Gateway Utama" autocomplete="off" />
+      </div>
+
+      <div class="field">
+        <label for="pBaseUrl">Base URL <span class="req">*</span></label>
+        <input id="pBaseUrl" type="text" placeholder="https://gateway.example.com/v1"
+               autocomplete="off" spellcheck="false" />
+        <p class="hint">Harus diawali <code>http://</code> atau <code>https://</code>.
+          Server memanggil <code>{Base URL}/chat/completions</code>.</p>
+      </div>
+
+      <div class="field">
+        <label for="pApiKey">API key <span class="req" id="pKeyReq">*</span></label>
+        <input id="pApiKey" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+        <p class="hint" id="pKeyHint">
+          Key dikirim sekali ke server lokal dan disimpan di mesin ini.
+          Tidak disimpan di browser, dan tidak pernah dikirim balik ke halaman.
+        </p>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="pVisionModel">Model vision (analisis gambar)</label>
+          <input id="pVisionModel" type="text" list="visionSuggestions"
+                 placeholder="glm-5.3-flash" autocomplete="off" spellcheck="false" />
+          <datalist id="visionSuggestions"></datalist>
+        </div>
+        <div class="field">
+          <label for="pTextModel">Model teks (narasi)</label>
+          <input id="pTextModel" type="text" placeholder="gpt-5.6-luna"
+                 autocomplete="off" spellcheck="false" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="pModels">Model yang boleh dipilih di UI</label>
+        <input id="pModels" type="text" placeholder="glm-5.3-flash, kimi-k3, gpt-5.6"
+               autocomplete="off" spellcheck="false" />
+        <p class="hint">
+          Dipisah koma. Ini pembatas keamanan: browser hanya boleh memakai model
+          dalam daftar ini. Kosongkan untuk memakai model vision saja.
+        </p>
+      </div>
+
+      <div class="field">
+        <label for="pTimeout">Batas waktu (detik)</label>
+        <input id="pTimeout" type="number" min="3" max="300" value="60" />
+      </div>
+
+      <p class="status" id="profileFormStatus"></p>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" id="saveProfileBtn" type="button">Simpan profil</button>
+        <button class="btn btn-secondary" id="testProfileBtn" type="button">Tes koneksi</button>
+        <button class="btn btn-secondary" id="testImageBtn" type="button">Tes baca gambar</button>
+        <button class="btn btn-ghost" id="cancelProfileBtn" type="button">Batal</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">Cara kerja &amp; keamanan</h2>
+      <ul class="tip-list">
+        <li><strong>Key disimpan di server, bukan di browser.</strong> Disimpan di
+          <code>_ai-profiles.json</code> pada mesin ini. Browser tidak pernah menerima
+          key-nya kembali — hanya versi tersamarkan.</li>
+        <li><strong>Berkas itu tidak bisa diunduh.</strong> Server statis menolak semua
+          path berawalan <code>_</code>, dan berkasnya juga sudah masuk
+          <code>.gitignore</code> sehingga tidak ikut ter-commit.</li>
+        <li><strong>Ganti profil tanpa restart.</strong> Konfigurasi dibaca ulang setiap
+          permintaan, jadi menyimpan atau mengaktifkan profil langsung berlaku.</li>
+        <li><strong>Lebih dari satu profil.</strong> Berguna untuk memisahkan gateway
+          murah (untuk uji coba) dan gateway mahal (untuk produk yang sulit dikenali),
+          atau untuk berpindah saat kuota satu gateway habis.</li>
+        <li><strong>Fallback berlapis.</strong> Bila belum ada profil aktif, server
+          memakai nilai di <code>.env</code>. Bila keduanya kosong, analisis AI mati dan
+          aplikasi kembali ke heuristik kata kunci — tetap menghasilkan 6 prompt.</li>
+      </ul>
     </div>
 
     <div class="card">
@@ -315,6 +393,7 @@
 <script src="js/core/export.js"></script>
 <script src="js/core/storage.js"></script>
 <script src="js/ui/render.js"></script>
+<script src="js/ui/profiles.js"></script>
 <script src="js/ui/app.js"></script>
 </body>
 </html>
