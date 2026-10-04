@@ -24,9 +24,15 @@ FA.capitalize = function (s) {
 /* ======================================================================
  * 1. CONTINUITY RESOLVER
  * Membuat SATU objek continuity yang disuntikkan identik ke 6 prompt.
+ *
+ * Bila ada hasil analisis gambar (brief.analysis), nilai dari analisis
+ * DIPRIORITASKAN atas nilai generik playbook — karena analisis melihat
+ * produk yang sebenarnya, sedangkan playbook hanya tahu kategorinya.
  * ==================================================================== */
 FA.resolveContinuity = function (brief, playbook, style, voice) {
   var c = playbook.continuity;
+  var a = brief.analysis || {};
+
   var keep = brief.keepCharacter && brief.talentOverride
     ? brief.talentOverride
     : c.talent;
@@ -35,23 +41,34 @@ FA.resolveContinuity = function (brief, playbook, style, voice) {
   if (style && style.grade) {
     gradeText += ". " + FA.capitalize(style.grade);
   }
+  // Mood visual dari analisis menambah karakter warna yang khas produk ini.
+  if (a.visualMood) {
+    gradeText += ". Overall mood: " + a.visualMood + ".";
+  }
 
   return {
     talent: keep,
-    wardrobe: c.wardrobe,
-    location: c.location,
-    lighting: c.lighting,
+    wardrobe: a.suggestedWardrobe || c.wardrobe,
+    location: a.suggestedSetting || c.location,
+    lighting: a.suggestedLighting || c.lighting,
     grade: gradeText,
     cameraStyle: style && style.camera ? style.camera : "",
     voiceDescriptor: voice.descriptor,
     voiceDirective: voice.directive,
     productName: brief.productName || "the product",
+
+    /* Kunci utama perbaikan kualitas: deskripsi visual produk.
+     * Tanpa ini, model video hanya tahu NAMA produk dan harus menebak
+     * bentuk, warna, serta materialnya. */
+    productDescription: a.productDescription || "",
+    labelText: a.labelText || "",
+    packaging: a.packaging || null,
   };
 };
 
 /* Blok continuity yang ditulis kata-per-kata sama di setiap prompt. */
 FA.buildContinuityBlock = function (ct, brief) {
-  return [
+  var lines = [
     "[CONTINUITY LOCK — identical in all 6 scenes, do not alter]",
     "Character: " + ct.talent + ".",
     "Wardrobe: " + ct.wardrobe + ".",
@@ -59,8 +76,24 @@ FA.buildContinuityBlock = function (ct, brief) {
     "Lighting: " + ct.lighting + ".",
     "Colour grade: " + ct.grade + ".",
     "Keep face, wardrobe, location, lighting and grade IDENTICAL across all scenes.",
-    "Product: " + ct.productName + " — keep the same shape, label and cap in every shot.",
-  ].join("\n");
+  ];
+
+  // Deskripsi produk yang konkret membuat model video mengenali bentuk, warna,
+  // dan material produk — bukan menebaknya dari nama saja.
+  var productLine = "Product: " + ct.productName;
+  if (ct.productDescription) {
+    productLine += " — " + ct.productDescription;
+  }
+  productLine += ". Keep the same shape, label and cap in every shot.";
+  lines.push(productLine);
+
+  if (ct.labelText) {
+    lines.push(
+      'The product label reads "' + ct.labelText + '" — keep that text exactly as-is.',
+    );
+  }
+
+  return lines.join("\n");
 };
 
 /* ======================================================================
@@ -140,14 +173,20 @@ FA.assemblePrompt = function (scene, enriched, ct, brief) {
   var blocks = [];
 
   /* --- Blok 1: REFERENCE DECLARATION --- */
-  blocks.push(
-    "[REFERENCE]\n" +
+  var refLines = [
+    "[REFERENCE]",
     "Use the uploaded product image as the primary product reference for " +
-    ct.productName + ".\n" +
-    (brief.hasCharacterRef
+      ct.productName + ".",
+  ];
+  if (ct.productDescription) {
+    refLines.push("The product is " + ct.productDescription + ".");
+  }
+  refLines.push(
+    brief.hasCharacterRef
       ? "Use the uploaded character photo as the identity reference for the talent."
-      : "Use the continuity description below to keep the talent consistent.")
+      : "Use the continuity description below to keep the talent consistent.",
   );
+  blocks.push(refLines.join("\n"));
 
   /* --- Blok 2: CONTINUITY LOCK --- */
   blocks.push(FA.buildContinuityBlock(ct, brief));
@@ -318,15 +357,29 @@ FA.generateProject = function (brief, options) {
     ? FA.PLATFORMS[brief.platform].aspect
     : FA.DEFAULT_ASPECT;
 
-  /* Slot variables — dipilih sekali agar konsisten di 6 scene. */
+  /* Slot variables — dipilih sekali agar konsisten di 6 scene.
+   * Bila ada hasil analisis gambar, saran dari analisis dipakai lebih dulu:
+   * itu terikat pada produk yang benar-benar difoto, sedangkan daftar
+   * playbook bersifat generik untuk seluruh kategori. */
+  var analysis = brief.analysis || {};
+  var pains = (analysis.suggestedPains && analysis.suggestedPains.length)
+    ? analysis.suggestedPains
+    : playbook.pains;
+  var benefits = (analysis.suggestedBenefits && analysis.suggestedBenefits.length)
+    ? analysis.suggestedBenefits
+    : playbook.benefits;
+  var usages = analysis.usageHint
+    ? [analysis.usageHint].concat(playbook.usages)
+    : playbook.usages;
+
   var vars = {
     product: brief.productName || "produk ini",
     category: playbook.label,
-    pain: brief.pain || FA.pick(playbook.pains, rng),
-    benefit: FA.pick(playbook.benefits, rng),
-    usage: FA.pick(playbook.usages, rng),
+    pain: brief.pain || FA.pick(pains, rng),
+    benefit: FA.pick(benefits, rng),
+    usage: FA.pick(usages, rng),
     time: FA.pick(playbook.times, rng),
-    audience: brief.audience || FA.pick(playbook.audiences, rng),
+    audience: brief.audience || analysis.suggestedAudience || FA.pick(playbook.audiences, rng),
     promo: brief.promo || "promonya masih jalan",
     price: brief.price || "",
     talent: "",
@@ -367,6 +420,8 @@ FA.generateProject = function (brief, options) {
     totalDuration: scenes.reduce(function (a, s) { return a + s.duration; }, 0),
     createdAt: new Date().toISOString(),
     enrichmentSource: "offline",
+    analysis: brief.analysis || null,
+    analysisSource: (brief.analysis && brief.analysis.source) || "none",
   };
 
   project.caption = FA.buildCaption(project);

@@ -114,19 +114,75 @@ karena model cenderung tidak mengucapkan kalimat yang tidak muat.
 
 ---
 
-## AI Enrichment (opsional)
+## Analisis gambar dengan AI (opsional)
 
-Secara default aplikasi berjalan **sepenuhnya offline** dan tetap menghasilkan
-6 prompt lengkap.
+Tanpa AI, aplikasi tetap menghasilkan 6 prompt lengkap — kategorinya ditebak
+dari kata kunci pada nama produk.
 
-Kalau kamu memasukkan **Google AI Studio API key** di tab **Pengaturan**,
-narasi dan teks layar akan ditulis ulang oleh Gemini agar lebih natural dan
-bervariasi. Key disimpan hanya di browser kamu.
+Dengan AI aktif, foto produk **benar-benar dilihat**: bentuk kemasan, warna,
+material, dan tulisan pada label ikut masuk ke prompt. Perbedaannya nyata:
 
-Kalau request AI gagal (internet mati, key salah, kuota habis), aplikasi
-otomatis kembali ke mode offline. **Aplikasi tidak pernah gagal karena AI.**
+| | Tanpa AI | Dengan AI |
+|---|---|---|
+| Blok `[REFERENCE]` | hanya nama produk | + deskripsi visual produk |
+| Blok `[CONTINUITY]` | lokasi generik per kategori | lokasi & pencahayaan sesuai produk |
+| Label produk | — | teks label dikunci apa adanya |
+| Masalah pembeli | daftar generik kategori | saran spesifik untuk produk itu |
 
-Dapatkan key gratis di `aistudio.google.com/apikey`.
+### Mengaktifkan
+
+```bash
+Copy-Item .env.example .env
+```
+
+Lalu isi `.env`:
+
+```ini
+AI_BASE_URL=https://gateway.example.com/v1
+AI_API_KEY=xxxxxxxx
+AI_VISION_MODEL=glm-5.3-flash
+AI_VISION_MODELS=glm-5.3-flash,kimi-k3,mimo-v2.6-pro,gpt-5.6
+```
+
+Jalankan ulang `bun run server.ts`, lalu buka tab **Pengaturan** untuk memilih
+model dan menguji koneksi.
+
+### Kenapa lewat server, bukan langsung dari browser
+
+1. Gateway AI umumnya tidak mengirim header CORS, jadi `fetch` dari halaman
+   akan diblokir browser.
+2. Kalau aplikasi dibuka lewat `file://`, origin-nya `null` dan hampir semua
+   gateway menolaknya.
+3. **API key tidak pernah meninggalkan mesin ini.** Key hanya dibaca server dari
+   `.env`; browser tidak pernah menerimanya, sehingga tidak bisa dicuri dari sisi
+   klien maupun tersimpan di localStorage.
+
+`.env` sudah masuk `.gitignore`. Untuk mencoba alur tanpa memakai kuota, set
+`AI_MOCK=1` — server akan mengembalikan analisis contoh tanpa menyentuh jaringan.
+
+### Memilih model
+
+Hanya model bertanda **Vision** yang bisa dipakai untuk analisis gambar. Isi
+`AI_VISION_MODELS` dengan model yang kamu izinkan, dan itulah yang muncul di
+pemilih. Ini sekaligus pembatas keamanan: tanpa daftar itu, browser tidak bisa
+menyuruh server memanggil model sembarangan yang ada di gateway.
+
+Untuk menekan biaya, pakai model Vision termurah untuk analisis (GLM/Kimi/MiMo
+di kisaran 2x) dan model teks murah untuk narasi. `gpt-5.6` di 5x sebaiknya
+hanya untuk produk yang sulit dikenali.
+
+### Kalau AI gagal
+
+Setiap kegagalan — gateway mati, key salah, kuota habis, model tidak bisa baca
+gambar — membuat aplikasi otomatis kembali ke heuristik keyword. Sudah diuji:
+dengan gateway yang tidak bisa dihubungi, aplikasi tetap menghasilkan 6 prompt
+yang lolos seluruh validasi. **Aplikasi tidak pernah gagal karena AI.**
+
+### Penyempurnaan narasi (opsional, default mati)
+
+Ada juga opsi menulis ulang dialog memakai model teks. Ini **default mati**
+karena menambah satu panggilan AI lagi setiap generate. Nyalakan lewat centang
+di tab Pengaturan bila kamu menginginkan narasi yang lebih bervariasi.
 
 ---
 
@@ -135,7 +191,7 @@ Dapatkan key gratis di `aistudio.google.com/apikey`.
 | PRD | Status |
 |---|---|
 | F-01 Upload produk | ✅ drag-drop, validasi format & ukuran, maks 5 file |
-| F-02 Product Analyzer | ✅ heuristik keyword (pengganti vision model, jalan offline) |
+| F-02 Product Analyzer | ✅ dua mode: analisis gambar via AI (opsional), atau heuristik keyword saat AI mati |
 | F-03 Brief Form | ✅ dengan kolom opsional yang bisa dibuka |
 | F-04 Playbook Selector | ✅ 7 playbook, bisa diganti manual |
 | F-05 Prompt Generator 6 Scene | ✅ 7 blok wajib per scene |
@@ -151,8 +207,13 @@ Dapatkan key gratis di `aistudio.google.com/apikey`.
 | F-15 Voice Persona Picker | ✅ 6 persona |
 
 **Fitur tambahan di luar PRD:** validator kualitas yang terlihat di UI (12
-pemeriksaan), SRT export untuk subtitle, halaman Panduan, dan penyaring klaim
-kesehatan absolut.
+pemeriksaan), SRT export untuk subtitle, halaman Panduan, penyaring klaim
+kesehatan absolut, **proxy AI dengan allowlist model**, dan **mode uji**
+(`AI_MOCK`) untuk mencoba alur tanpa memakai kuota.
+
+PRD §8.5 mencantumkan "API routes" yang dulu tidak bisa diwujudkan karena
+aplikasi berjalan tanpa server. Sejak proxy AI ditambahkan, bagian itu terpenuhi:
+`GET /api/status`, `POST /api/vision`, `POST /api/enrich`.
 
 ---
 
@@ -161,8 +222,9 @@ kesehatan absolut.
 1. **Tidak memanggil Google Flow secara otomatis.** Flow belum menyediakan API
    publik untuk ini, jadi prompt memang dirancang untuk copy-paste manual —
    sesuai keputusan di PRD §3.3.
-2. **Analisis produk berbasis keyword, bukan vision model.** Cukup akurat untuk
-   kategori umum. Untuk produk ambigu, koreksi kategorinya manual.
+2. **Analisis produk punya dua mode.** Dengan AI aktif, hasilnya spesifik pada
+   produk yang difoto. Tanpa AI, kategori ditebak dari kata kunci — cukup akurat
+   untuk kategori umum, tapi untuk produk ambigu sebaiknya koreksi manual.
 3. **Gambar tidak disimpan di Library.** Hanya teks (prompt, narasi, caption).
    Ini disengaja demi privasi dan kuota localStorage.
 4. **Kualitas dialog Indonesia dari Omni Flash belum diverifikasi.**
@@ -205,18 +267,33 @@ Halaman /demo dan /test tersedia di bawah URL yang sama.
 
 ## Riwayat pengujian
 
-Test suite mencakup **117 pemeriksaan**, termasuk seluruh **84 kombinasi**
+Test suite mencakup **162 pemeriksaan**, termasuk seluruh **84 kombinasi**
 (7 playbook × 3 pacing × 4 platform). Semua lolos.
 
 Yang diverifikasi: struktur 7 blok, aturan single-shot, batas kata dialog &
 teks layar, konsistensi blok continuity, tidak ada placeholder bocor, durasi
 valid (4/6/8/10s), determinisme seed, round-trip library, deteksi kategori,
-pemilihan hook, dan penyaring klaim absolut.
+pemilihan hook, normalisasi keluaran model yang berantakan, pengaruh analisis
+gambar terhadap isi prompt, dan penyaring klaim absolut.
 
-Tiga bug nyata ditemukan dan diperbaiki selama pengujian:
-1. Kalimat blok `[SHOT]` rusak secara gramatikal karena deskripsi talent yang
-   panjang disisipkan tanpa subjek.
+Jalur kegagalan juga diuji secara nyata, bukan diasumsikan: dengan gateway AI
+yang tidak bisa dihubungi (`HTTP 502`), aplikasi tetap menghasilkan 6 prompt
+yang lolos seluruh validasi.
+
+### Bug nyata yang ditemukan dan diperbaiki
+
+1. Blok `[SHOT]` rusak secara gramatikal — deskripsi talent yang panjang
+   disisipkan sebagai subjek tanpa kata kerja.
 2. Frasa masalah diulang kata-per-kata di beberapa scene, sehingga narasi
-   terdengar seperti membacakan brief.
+   terdengar seperti membacakan brief, bukan orang berbicara.
 3. "Serum Vitamin C" salah terdeteksi sebagai produk kesehatan, karena
    "vitamin" mengalahkan "serum" dalam skor pencocokan.
+4. `normalize()` memotong daftar **sebelum** menyaring, sehingga entri sampah
+   ikut memakan kuota slot — satu warna valid hilang karena ada satu entri
+   tidak valid. Urutan filter harus dibalik.
+5. `status()` tidak meneruskan daftar `models` dari server, sehingga pemilih
+   model di UI selalu hanya menampilkan satu opsi meski server mengirim empat.
+6. Kalimat blok `[SETTING & LIGHTING]` dimulai huruf kecil karena template
+   playbook memang ditulis huruf kecil.
+
+Bug 4 dan 5 hanya ketahuan karena diuji, bukan karena membaca ulang kode.

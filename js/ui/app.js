@@ -30,7 +30,7 @@ FA.App = {
     FA.App.onCategoryChange(false);
     FA.App.setStep(1);
     FA.renderDbStats();
-    FA.App.loadKeyIntoField();
+    FA.App.loadAiStatus();
 
     // Demo shortcut: ?demo=1 langsung generate contoh.
     var params = new URLSearchParams(location.search);
@@ -110,7 +110,7 @@ FA.App = {
       b.classList.toggle("is-active", b.dataset.view === view);
     });
     if (view === "library") FA.renderLibrary();
-    if (view === "settings") { FA.renderDbStats(); FA.App.loadKeyIntoField(); }
+    if (view === "settings") { FA.renderDbStats(); FA.App.loadAiStatus(); }
     FA.App.state.view = view;
     window.scrollTo({ top: 0, behavior: "smooth" });
   },
@@ -292,47 +292,132 @@ FA.App = {
     FA.App.setStep(2);
     FA.App.runProgress();
 
-    // Beri kesempatan browser menggambar UI sebelum kerja sinkron.
+    // Tahap 1: analisis gambar (bila AI aktif). Hasilnya harus selesai
+    // SEBELUM prompt dirakit, karena deskripsi produk dan saran pain/benefit
+    // ikut menentukan isi prompt.
+    FA.App.markProgress(1, false);
+    FA.App.analyzeThenGenerate(brief);
+  },
+
+  /** Jalankan analisis gambar, lalu rakit prompt apa pun hasilnya.
+   *  Kegagalan analisis TIDAK boleh menghentikan pembuatan prompt. */
+  analyzeThenGenerate: function (brief) {
+    var files = FA.App.state.files || [];
+
+    var done = function (analysis) {
+      if (analysis && analysis.failed) {
+        FA.App.toast("Analisis gambar dilewati: " + analysis.error, "err");
+        brief.analysis = null;
+      } else if (analysis) {
+        brief.analysis = analysis;
+        FA.App.applyAnalysisToBrief(analysis, brief);
+      } else {
+        brief.analysis = null;
+      }
+      FA.App.buildFromBrief(brief);
+    };
+
+    // Tanpa berkas gambar (mis. mode contoh) atau tanpa server -> langsung rakit.
+    if (!files.length || !FA.Vision.available()) {
+      FA.App.markProgress(2, false);
+      done(null);
+      return;
+    }
+
+    document.getElementById("progressTitle").textContent = "Menganalisis gambar produk…";
+    document.getElementById("progressSub").textContent =
+      "Membaca bentuk kemasan, warna, dan label pada foto.";
+
+    FA.Vision.analyze(files, brief.productName).then(function (analysis) {
+      FA.App.markProgress(2, false);
+      done(analysis);
+    });
+  },
+
+  /** Terapkan hasil analisis ke form: isi kolom yang masih kosong dan
+   *  sarankan kategori. Kolom yang sudah diisi pengguna TIDAK ditimpa —
+   *  ketikan manusia selalu menang atas tebakan model. */
+  applyAnalysisToBrief: function (a, brief) {
+    var notes = [];
+
+    // Kategori: hanya diubah bila model cukup yakin.
+    if (a.category && a.confidence >= 0.5) {
+      var sel = document.getElementById("fCategory");
+      if (sel && sel.value !== a.category) {
+        sel.value = a.category;
+        FA.App.onCategoryChange(false);
+        brief.category = a.category;
+        notes.push("kategori " + (FA.PLAYBOOKS[a.category] || {}).label);
+      }
+    }
+
+    // Nama produk: hanya isi bila pengguna belum mengetik apa pun.
+    var nameEl = document.getElementById("fName");
+    if (a.productName && nameEl && !nameEl.value.trim()) {
+      nameEl.value = a.productName;
+      brief.productName = a.productName;
+      notes.push("nama produk");
+    }
+
+    if (a.suggestedPains && a.suggestedPains.length) {
+      var painEl = document.getElementById("fPain");
+      if (painEl && !painEl.value.trim()) {
+        painEl.value = a.suggestedPains[0];
+        brief.pain = a.suggestedPains[0];
+        notes.push("masalah pembeli");
+      }
+    }
+
+    if (a.suggestedAudience) {
+      var audEl = document.getElementById("fAudience");
+      if (audEl && !audEl.value.trim()) {
+        audEl.value = a.suggestedAudience;
+        brief.audience = a.suggestedAudience;
+        notes.push("target pembeli");
+      }
+    }
+
+    if (notes.length) {
+      FA.App.toast("AI melengkapi: " + notes.join(", "), "ok");
+    }
+  },
+
+  /** Rakit 6 prompt dari brief final. */
+  buildFromBrief: function (brief) {
+    document.getElementById("progressTitle").textContent = "Merakit 6 prompt scene…";
+    document.getElementById("progressSub").textContent =
+      "Menyusun continuity lock dan 7 blok wajib per scene.";
+
     setTimeout(function () {
+      FA.App.markProgress(4, false);
       var project = FA.generateProject(brief, {});
       FA.App.state.project = project;
 
-      // Fase AI enrichment (opsional). Kalau tidak ada key -> langsung render.
+      // Tahap 3 (opsional, default MATI): sempurnakan narasi memakai model teks.
       if (FA.AI.isEnabled()) {
-        FA.App.markProgress(5, true);
-        document.getElementById("progressTitle").textContent = "Menulis ulang narasi dengan AI…";
+        document.getElementById("progressTitle").textContent = "Menyempurnakan narasi…";
         document.getElementById("progressSub").textContent =
-          "Gemini menyempurnakan dialog dan teks layar.";
+          "Model teks menulis ulang dialog agar lebih natural.";
         FA.AI.enrich(project).then(function (enriched) {
-          var finalProject = enriched || FA.App.state.project;
-          FA.App.finishGenerate(finalProject, !!enriched);
+          FA.App.markProgress(5, true);
+          FA.App.finishGenerate(enriched || project, !!enriched);
         });
-      } else {
-        FA.App.finishGenerate(project, false);
+        return;
       }
-    }, 120);
+
+      FA.App.markProgress(5, true);
+      FA.App.finishGenerate(project, false);
+    }, 60);
   },
 
+  /** Kosongkan daftar progres. Progres TIDAK lagi dijalankan oleh timer
+   *  kosmetik: tiap tahap sekarang nyata (analisis gambar bisa memakan
+   *  beberapa detik), dan timer palsu akan menimpa progres sebenarnya
+   *  sehingga indikatornya berbohong. */
   runProgress: function () {
-    var items = document.querySelectorAll("#progressList li");
-    items.forEach(function (li) { li.className = ""; });
-    FA.App.progressTimer = 0;
-
-    var steps = [
-      { t: "Menganalisis produk…", s: "Membaca kategori dan menyiapkan slot konten." },
-      { t: "Memilih playbook…", s: "Menyesuaikan dengan kategori produk kamu." },
-      { t: "Menyusun continuity lock…", s: "Mengunci wajah, pakaian, dan lokasi untuk 6 scene." },
-      { t: "Merakit 6 prompt scene…", s: "Menggabungkan 7 blok wajib per scene." },
-      { t: "Memvalidasi kualitas…", s: "Memeriksa 12 pemeriksaan otomatis." },
-    ];
-
-    FA.App.progressTimers = [];
-    steps.forEach(function (step, i) {
-      FA.App.progressTimers.push(setTimeout(function () {
-        document.getElementById("progressTitle").textContent = step.t;
-        document.getElementById("progressSub").textContent = step.s;
-        FA.App.markProgress(i + 1, false);
-      }, i * 260));
+    FA.App.clearProgressTimers();
+    document.querySelectorAll("#progressList li").forEach(function (li) {
+      li.className = "";
     });
   },
 
@@ -547,17 +632,12 @@ FA.App = {
   },
 
   regenerateAll: function () {
+    // Hasil analisis gambar tetap dipakai ulang — tidak perlu memanggil AI
+    // lagi hanya untuk variasi prompt baru.
     var b = FA.App.state.project.brief;
     FA.App.state.project = FA.generateProject(b, { seed: (Math.random() * 4294967295) >>> 0 });
-    if (FA.AI.isEnabled()) {
-      FA.AI.enrich(FA.App.state.project).then(function (enriched) {
-        FA.App.renderResults(enriched || FA.App.state.project);
-        FA.App.toast("Paket baru dibuat", "ok");
-      });
-    } else {
-      FA.App.renderResults(FA.App.state.project);
-      FA.App.toast("Paket baru dibuat", "ok");
-    }
+    FA.App.renderResults(FA.App.state.project);
+    FA.App.toast("Paket baru dibuat", "ok");
   },
 
   resetWizard: function () {
@@ -605,58 +685,147 @@ FA.App = {
 
   /* -------------------------------------------------------- SETTINGS */
   bindSettings: function () {
-    document.getElementById("saveKeyBtn").addEventListener("click", function () {
-      var v = document.getElementById("apiKey").value.trim();
-      FA.AI.setKey(v);
-      FA.App.setKeyStatus(v ? "API key disimpan. Narasi akan diperkaya AI." : "API key dihapus.", "ok");
-      FA.App.toast(v ? "API key disimpan" : "API key dihapus", "ok");
-    });
+    var refresh = document.getElementById("refreshAiBtn");
+    if (refresh) refresh.addEventListener("click", function () { FA.App.loadAiStatus(); });
 
-    document.getElementById("clearKeyBtn").addEventListener("click", function () {
-      FA.AI.setKey("");
-      document.getElementById("apiKey").value = "";
-      FA.App.setKeyStatus("API key dihapus. Aplikasi berjalan offline.", "ok");
-    });
+    var testBtn = document.getElementById("testAiBtn");
+    if (testBtn) testBtn.addEventListener("click", function () { FA.App.testAiAnalysis(); });
 
-    document.getElementById("testKeyBtn").addEventListener("click", function () {
-      var key = document.getElementById("apiKey").value.trim() || FA.AI.getKey();
-      if (!key) { FA.App.setKeyStatus("Masukkan API key dulu.", "err"); return; }
-      FA.App.setKeyStatus("Menguji koneksi…", "");
+    var sel = document.getElementById("visionModel");
+    if (sel) {
+      sel.addEventListener("change", function () {
+        FA.Vision.setSelectedModel(sel.value);
+        FA.App.toast("Model analisis diset ke " + sel.value, "ok");
+      });
+    }
 
-      var url = FA.AI.ENDPOINT + FA.AI.MODEL + ":generateContent?key=" + encodeURIComponent(key);
-      fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: "Balas satu kata: OK" }] }] }),
-      })
-        .then(function (r) {
-          if (!r.ok) throw new Error("HTTP " + r.status);
-          return r.json();
-        })
-        .then(function () {
-          FA.App.setKeyStatus("✓ Koneksi berhasil. AI enrichment aktif.", "ok");
-        })
-        .catch(function (err) {
-          FA.App.setKeyStatus("✗ Gagal: " + err.message + ". Cek key atau koneksi internet.", "err");
-        });
+    var toggle = document.getElementById("enrichToggle");
+    if (toggle) {
+      toggle.checked = FA.AI.isEnabled();
+      toggle.addEventListener("change", function () {
+        FA.AI.setEnabled(toggle.checked);
+        FA.App.toast(
+          toggle.checked
+            ? "Penyempurnaan narasi aktif (menambah biaya)"
+            : "Penyempurnaan narasi dimatikan",
+          "ok",
+        );
+      });
+    }
+  },
+
+  /** Ambil status AI dari server dan gambarkan ke panel Pengaturan. */
+  loadAiStatus: function () {
+    var box = document.getElementById("aiStatusBox");
+    if (!box) return;
+
+    box.className = "ai-status";
+    box.textContent = "Memeriksa status…";
+
+    FA.Vision.status().then(function (s) {
+      var modelField = document.getElementById("modelField");
+      var sel = document.getElementById("visionModel");
+
+      if (s.offline || !s.ok) {
+        box.className = "ai-status warn";
+        box.innerHTML =
+          "<strong>Analisis AI tidak tersedia.</strong><br>" +
+          FA.esc(s.reason || "Server lokal tidak merespons.") +
+          "<br><span class='hint'>Aplikasi tetap berfungsi penuh tanpa AI — kategori " +
+          "ditebak dari kata kunci.</span>";
+        if (modelField) modelField.style.display = "none";
+        return;
+      }
+
+      if (!s.configured) {
+        box.className = "ai-status warn";
+        box.innerHTML =
+          "<strong>Belum dikonfigurasi.</strong><br>" +
+          FA.esc(s.reason || "") +
+          "<br><span class='hint'>Tanpa AI, aplikasi tetap menghasilkan 6 prompt lengkap.</span>";
+        if (modelField) modelField.style.display = "none";
+        return;
+      }
+
+      box.className = "ai-status ok";
+      box.innerHTML =
+        "<strong>Analisis gambar aktif" + (s.mock ? " (mode uji)" : "") + ".</strong><br>" +
+        "Model default: <code>" + FA.esc(s.model) + "</code>" +
+        (s.baseUrlHost ? " &middot; gateway: <code>" + FA.esc(s.baseUrlHost) + "</code>" : "") +
+        (s.mock ? "<br><span class='hint'>Mode uji: analisis contoh dikembalikan tanpa memanggil jaringan.</span>" : "");
+
+      // Isi pemilih model, utamakan model yang tersedia di allowlist server.
+      if (modelField && sel) {
+        var models = (s.models && s.models.length) ? s.models : [s.model];
+        var chosen = FA.Vision.selectedModel();
+        if (models.indexOf(chosen) === -1) chosen = s.model;
+
+        sel.innerHTML = models.map(function (m) {
+          return '<option value="' + FA.esc(m) + '"' + (m === chosen ? " selected" : "") + ">" +
+            FA.esc(m) + "</option>";
+        }).join("");
+        modelField.style.display = "";
+      }
     });
   },
 
-  loadKeyIntoField: function () {
-    var el = document.getElementById("apiKey");
+  /** Uji analisis memakai gambar contoh kecil, supaya pengguna tahu
+   *  gateway-nya benar-benar bisa membaca gambar — bukan sekadar terpasang. */
+  testAiAnalysis: function () {
+    var el = document.getElementById("aiTestStatus");
     if (!el) return;
-    var k = FA.AI.getKey();
-    if (k) el.value = k;
-    FA.App.setKeyStatus(
-      k ? "AI enrichment aktif." : "Mode offline — prompt tetap dibuat lengkap tanpa API key.", "ok"
-    );
+    el.className = "status";
+    el.textContent = "Mengirim gambar uji…";
+
+    // PNG 8x8 warna solid, dibuat langsung di kanvas.
+    var c = document.createElement("canvas");
+    c.width = 64; c.height = 64;
+    var ctx = c.getContext("2d");
+    ctx.fillStyle = "#e8dcc8";
+    ctx.fillRect(0, 0, 64, 64);
+    ctx.fillStyle = "#c9a961";
+    ctx.fillRect(24, 16, 16, 32);
+    var dataUrl = c.toDataURL("image/png");
+
+    fetch("/api/vision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ images: [dataUrl], hint: "ini gambar uji", model: FA.Vision.selectedModel() }),
+    })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          el.className = "status err";
+          el.textContent = "✗ " + (res.d.error || "gagal");
+          return;
+        }
+
+        // Mode uji TIDAK memanggil jaringan, jadi jangan mengklaim gateway
+        // bisa membaca gambar — itu akan menyesatkan pengguna.
+        if (res.d.model === "mock") {
+          el.className = "status";
+          el.textContent =
+            "◐ Mode uji aktif (AI_MOCK=1): balasan contoh diterima, " +
+            "tetapi TIDAK ada permintaan yang dikirim ke gateway. " +
+            "Set AI_MOCK=0 untuk menguji sungguhan.";
+          return;
+        }
+
+        var a = res.d.analysis || {};
+        el.className = "status ok";
+        el.textContent =
+          "✓ Gateway berhasil membaca gambar. Model menjawab kategori \"" +
+          (a.category || "?") + "\" dengan keyakinan " +
+          (typeof a.confidence === "number" ? Math.round(a.confidence * 100) + "%" : "?") +
+          (res.d.model ? " (model: " + res.d.model + ")" : "") + ".";
+      })
+      .catch(function (e) {
+        el.className = "status err";
+        el.textContent = "✗ " + e.message;
+      });
   },
 
-  setKeyStatus: function (msg, cls) {
-    var el = document.getElementById("keyStatus");
-    el.textContent = msg;
-    el.className = "status " + (cls || "");
-  },
+  setKeyStatus: function () { /* digantikan loadAiStatus() */ },
 
   /* ------------------------------------------------------------ TOAST */
   toast: function (msg, kind) {

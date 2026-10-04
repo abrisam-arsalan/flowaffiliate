@@ -1,137 +1,67 @@
 /* =========================================================================
- * FlowAffiliate — AI Enrichment Layer (OPSIONAL)
+ * FlowAffiliate — Narration Enrichment (OPSIONAL, mati secara default)
  *
- * PRD §8.3: LLM HANYA mengisi slot kreatif (dialog, teks layar). Struktur
- * prompt, blok continuity, dan aturan teknis tetap dari Conductor Engine.
+ * Menyempurnakan dialog & teks layar memakai model teks lewat proxy server
+ * (/api/enrich). Berbeda dari analisis gambar yang otomatis, fitur ini
+ * opsional dan default MATI karena memanggil AI sekali lagi (menambah biaya
+ * dan waktu).
  *
- * Bila tidak ada API key atau request gagal -> otomatis fallback ke mode
- * offline deterministik. Aplikasi TIDAK PERNAH gagal karena AI.
+ * PRD §8.3: LLM hanya mengisi slot kreatif. Struktur prompt, blok continuity,
+ * dan aturan teknis tetap dari Conductor Engine — bukan dari model.
  * ========================================================================= */
 
 window.FA = window.FA || {};
 
 FA.AI = {
-  MODEL: "gemini-2.0-flash",
-  ENDPOINT: "https://generativelanguage.googleapis.com/v1beta/models/",
-  TIMEOUT_MS: 25000,
-
-  getKey: function () {
-    try { return localStorage.getItem("fa_api_key") || ""; } catch (e) { return ""; }
+  /** Preferensi disimpan di browser; ini bukan rahasia, hanya pilihan. */
+  isEnabled: function () {
+    try { return localStorage.getItem("fa_enrich") === "1"; }
+    catch (e) { return false; }
   },
 
-  setKey: function (key) {
+  setEnabled: function (on) {
     try {
-      if (key) localStorage.setItem("fa_api_key", key);
-      else localStorage.removeItem("fa_api_key");
+      if (on) localStorage.setItem("fa_enrich", "1");
+      else localStorage.removeItem("fa_enrich");
     } catch (e) { /* localStorage bisa diblokir di file:// */ }
   },
 
-  isEnabled: function () {
-    return !!FA.AI.getKey();
-  },
-
-  /* Bangun prompt untuk LLM: minta JSON ketat, hanya slot kreatif. */
-  buildMetaPrompt: function (project) {
-    var lines = [];
-    project.scenes.forEach(function (s) {
-      lines.push(
-        "Scene " + s.index + " (" + s.archetype.label + ", " + s.duration + "s, " +
-        "maks " + FA.wordBudget(s.duration) + " kata):"
-      );
-      lines.push("  saat ini: \"" + s.dialogue + "\"");
-    });
-
-    return [
-      "Kamu copywriter iklan affiliate Indonesia yang spesialis hook viral TikTok/Shopee.",
-      "",
-      "PRODUK: " + (project.brief.productName || "-"),
-      "KATEGORI: " + project.playbookLabel,
-      "MASALAH TARGET: " + project.vars.pain,
-      "MANFAAT UTAMA: " + project.vars.benefit,
-      "CARA PAKAI: " + project.vars.usage,
-      "AUDIENS: " + project.vars.audience,
-      "PLATFORM: " + project.brief.platform,
-      "GAYA SUARA: " + project.brief.voice.label + " (" + project.brief.voice.directive + ")",
-      "",
-      "TUGAS: Tulis ulang dialog untuk tiap scene agar lebih natural, spesifik, dan",
-      "menggugah. Bahasa Indonesia gaul tapi sopan. JANGAN mengarang klaim kesehatan",
-      "atau angka statistik. JANGAN menyebut harga.",
-      "Teks layar maksimal " + FA.ONSCREEN_MAX_WORDS + " kata, huruf kapital di awal kata.",
-      "",
-      "BATAS KATA PER SCENE (WAJIB DIPATUHI):",
-      lines.join("\n"),
-      "",
-      "Balas HANYA dengan JSON valid, tanpa markdown, format:",
-      '{"scenes":[{"index":1,"dialogue":"...","onscreen":"..."}]}',
-    ].join("\n");
-  },
-
-  /* Panggil Gemini. Return null bila gagal (pemanggil akan fallback). */
+  /** Kirim scene ke proxy. Selalu resolve null bila gagal — pemanggil akan
+   *  memakai versi offline. Aplikasi tidak pernah gagal karena AI. */
   enrich: function (project) {
     if (!FA.AI.isEnabled()) return Promise.resolve(null);
+    if (!FA.Vision.available()) return Promise.resolve(null);
 
-    var key = FA.AI.getKey();
-    var url = FA.AI.ENDPOINT + FA.AI.MODEL + ":generateContent?key=" + encodeURIComponent(key);
-
-    var body = {
-      contents: [{ parts: [{ text: FA.AI.buildMetaPrompt(project) }] }],
-      generationConfig: {
-        temperature: 0.9,
-        maxOutputTokens: 2048,
-        responseMimeType: "application/json",
-      },
+    var payload = {
+      productName: project.brief.productName,
+      category: project.playbookId,
+      pains: project.vars && project.vars.pain ? [project.vars.pain] : [],
+      benefits: project.vars && project.vars.benefit ? [project.vars.benefit] : [],
+      scenes: project.scenes.map(function (s) {
+        return { index: s.index, duration: s.duration, current: s.dialogue };
+      }),
     };
 
-    var controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-    var timer = setTimeout(function () {
-      if (controller) controller.abort();
-    }, FA.AI.TIMEOUT_MS);
-
-    return fetch(url, {
+    return fetch("/api/enrich", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller ? controller.signal : undefined,
+      body: JSON.stringify(payload),
     })
       .then(function (res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.json();
+        return res.json().then(function (d) {
+          if (!res.ok) throw new Error(d && d.error ? d.error : "HTTP " + res.status);
+          return d;
+        });
       })
-      .then(function (data) {
-        var text =
-          data &&
-          data.candidates &&
-          data.candidates[0] &&
-          data.candidates[0].content &&
-          data.candidates[0].content.parts &&
-          data.candidates[0].content.parts[0] &&
-          data.candidates[0].content.parts[0].text;
-        if (!text) throw new Error("respons kosong");
-
-        var parsed;
-        try {
-          parsed = JSON.parse(text);
-        } catch (e) {
-          // Kadang model membungkus JSON dengan ```json ... ```
-          var m = text.match(/\{[\s\S]*\}/);
-          if (!m) throw new Error("JSON tidak valid");
-          parsed = JSON.parse(m[0]);
-        }
-        return parsed;
-      })
-      .then(function (parsed) {
-        clearTimeout(timer);
-        return FA.AI.applyEnrichment(project, parsed);
-      })
+      .then(function (parsed) { return FA.AI.applyEnrichment(project, parsed); })
       .catch(function (err) {
-        clearTimeout(timer);
-        console.warn("[FlowAffiliate] AI enrichment gagal, pakai mode offline:", err.message);
+        console.warn("[FlowAffiliate] penyempurnaan narasi dilewati:", err.message);
         return null;
       });
   },
 
-  /* Terapkan hasil LLM ke project, VALIDASI ulang tiap scene.
-   * Scene yang melanggar batas kata akan dikembalikan ke versi offline. */
+  /** Terapkan hasil model, lalu VALIDASI ulang. Scene yang melanggar batas
+   *  kata dikembalikan ke versi offline — model tidak boleh merusak output. */
   applyEnrichment: function (project, parsed) {
     if (!parsed || !Array.isArray(parsed.scenes)) return null;
     var applied = 0;
@@ -155,7 +85,7 @@ FA.AI = {
         scene.enriched.onscreen = onscreen;
       }
 
-      // Rakit ulang prompt dengan konten yang sudah diperkaya.
+      // Rakit ulang prompt dengan konten yang sudah disempurnakan.
       scene.prompt = FA.assemblePrompt(scene, scene.enriched, project.continuity, project.brief);
     });
 

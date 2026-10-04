@@ -236,28 +236,60 @@
     <div class="section-head"><h1>Pengaturan</h1></div>
 
     <div class="card">
-      <h2 class="card-title">AI Enrichment (opsional)</h2>
+      <h2 class="card-title">Analisis Gambar dengan AI</h2>
       <p class="muted">
-        Secara default aplikasi ini berjalan <strong>sepenuhnya offline</strong> dan tetap menghasilkan
-        6 prompt lengkap. Kalau kamu memasukkan Google AI Studio API key, narasi dan teks layar akan
-        ditulis ulang oleh Gemini supaya lebih natural dan bervariasi.
+        Aplikasi ini berjalan <strong>tanpa AI pun sudah lengkap</strong> — kategori produk
+        ditebak dari kata kunci. Kalau kamu mengaktifkan analisis AI, foto produk akan
+        benar-benar <em>dilihat</em>: bentuk kemasan, warna, material, dan tulisan pada label
+        ikut masuk ke prompt. Hasilnya prompt jauh lebih spesifik.
       </p>
 
-      <div class="field">
-        <label for="apiKey">Google AI Studio API key</label>
-        <input id="apiKey" type="password" placeholder="AIza..." autocomplete="off" spellcheck="false" />
+      <div id="aiStatusBox" class="ai-status">Memeriksa status…</div>
+
+      <div class="field" id="modelField" style="display:none">
+        <label for="visionModel">Model analisis gambar</label>
+        <select id="visionModel"></select>
         <p class="hint">
-          Key disimpan hanya di browser kamu (localStorage) dan dikirim langsung ke Google.
-          Dapatkan gratis di <code>aistudio.google.com/apikey</code>.
+          Angka dalam tanda kurung adalah pengganda biaya dari daftar modelmu.
+          Model teks tidak bisa dipakai di sini karena tidak dapat membaca gambar.
         </p>
       </div>
 
       <div class="btn-row">
-        <button class="btn btn-primary" id="saveKeyBtn" type="button">Simpan key</button>
-        <button class="btn btn-ghost" id="clearKeyBtn" type="button">Hapus key</button>
-        <button class="btn btn-ghost" id="testKeyBtn" type="button">Tes koneksi</button>
+        <button class="btn btn-secondary" id="refreshAiBtn" type="button">Muat ulang status</button>
+        <button class="btn btn-ghost" id="testAiBtn" type="button">Tes analisis gambar</button>
       </div>
-      <p class="status" id="keyStatus"></p>
+      <p class="status" id="aiTestStatus"></p>
+
+      <label class="checkline" style="margin-top:.8rem">
+        <input type="checkbox" id="enrichToggle" />
+        <span>
+          Sempurnakan narasi dengan AI (opsional). Memakai model teks dan
+          <strong>menambah satu panggilan AI lagi</strong> setiap generate,
+          jadi biayanya lebih tinggi. Kalau dimatikan, narasi tetap dibuat
+          lengkap oleh mesin offline.
+        </span>
+      </label>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">Cara mengaktifkan</h2>
+      <p class="muted">
+        API key <strong>tidak disimpan di browser</strong>. Key hanya dibaca oleh server
+        lokal dari file <code>.env</code>, sehingga tidak pernah terkirim ke halaman
+        atau tersimpan di localStorage.
+      </p>
+      <ol class="guide-list">
+        <li>Salin template: <code>Copy-Item .env.example .env</code></li>
+        <li>Isi <code>AI_BASE_URL</code>, <code>AI_API_KEY</code>, dan <code>AI_VISION_MODEL</code>.</li>
+        <li>Isi <code>AI_VISION_MODELS</code> dengan daftar model vision yang boleh dipilih dari UI, dipisah koma.</li>
+        <li>Jalankan ulang <code>bun run server.ts</code>, lalu kembali ke halaman ini.</li>
+      </ol>
+      <p class="hint">
+        <code>.env</code> sudah masuk <code>.gitignore</code>, jadi key kamu tidak akan
+        ikut ter-commit. Ingin mencoba alur tanpa memakai kuota? Set
+        <code>AI_MOCK=1</code>.
+      </p>
     </div>
 
     <div class="card">
@@ -278,6 +310,7 @@
 <script src="js/data/archetypes.js"></script>
 <script src="js/data/playbooks.js"></script>
 <script src="js/core/conductor.js"></script>
+<script src="js/core/vision.js"></script>
 <script src="js/core/ai.js"></script>
 <script src="js/core/export.js"></script>
 <script src="js/core/storage.js"></script>

@@ -452,6 +452,22 @@ select { cursor: pointer; }
 .stat-num { font-size: 1.3rem; font-weight: 800; color: var(--accent); line-height: 1.2; }
 .stat-lbl { font-size: .74rem; color: var(--text-faint); }
 
+/* ============================== AI STATUS ============================== */
+.ai-status {
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  padding: .7rem .85rem;
+  margin-bottom: .9rem;
+  font-size: .85rem;
+  background: var(--bg-soft);
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+.ai-status.ok { border-left-color: var(--accent); }
+.ai-status.warn { border-left-color: var(--warn); }
+.ai-status strong { color: var(--text); }
+
 /* ============================== TOAST ============================== */
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px);

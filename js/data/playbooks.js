@@ -18,9 +18,12 @@ FA.PLAYBOOKS = {
   /* ------------------------------------------------------------ SKINCARE */
   SKINCARE: {
     id: "SKINCARE",
-    label: "Skincare & Perawatan Kulit",
+    label: "Skincare & Kosmetik",
     icon: "✨",
-    matchKeywords: ["serum", "skincare", "krim", "cream", "toner", "sunscreen", "masker", "facial", "lotion", "kulit"],
+    matchKeywords: ["serum", "skincare", "krim", "cream", "toner", "sunscreen", "masker", "facial", "lotion", "kulit",
+                    "lipstik", "lipstick", "lisptik", "bedak", "foundation", "cushion", "maskara", "mascara",
+                    "eyeliner", "blush", "lipcream", "lip cream", "kosmetik", "makeup", "parfum", "haircare",
+                    "sampo", "shampoo", "conditioner", "sabun", "body wash", "deodoran"],
     defaultVoice: "sahabat",
     defaultStyle: "aesthetic",
     defaultPacing: "standar",
@@ -344,7 +347,10 @@ FA.PLAYBOOK_ORDER = ["SKINCARE", "FASHION", "FNB", "GADGET", "HOME", "HEALTH", "
  */
 FA.STRONG_KEYWORDS = {
   SKINCARE: ["serum", "skincare", "toner", "sunscreen", "moisturizer", "facial wash",
-             "micellar", "essence", "peeling", "acne patch", "lip balm", "body lotion"],
+             "micellar", "essence", "peeling", "acne patch", "lip balm", "body lotion",
+             "lipstik", "lipstick", "cushion", "foundation", "maskara", "mascara",
+             "eyeliner", "blush", "kosmetik", "makeup", "parfum", "sampo", "shampoo",
+             "deodoran", "body wash"],
   FASHION:  ["kemeja", "dress", "celana", "hijab", "outfit", "tunik", "blazer",
              "cardigan", "rok", "sandal", "sneakers", "tas", "dompet", "jaket"],
   FNB:      ["kopi", "boba", "keripik", "sambal", "mie instan", "snack", "coklat",

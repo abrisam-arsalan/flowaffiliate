@@ -20,8 +20,10 @@ build/
 *.tsbuildinfo
 
 # ── Env & rahasia ───────────────────────────────────────────
-# API key Google AI Studio TIDAK PERNAH boleh masuk repo.
-# Simpan di localStorage (dibaca lewat tab Pengaturan) atau di env lokal.
+# API key disimpan di `.env` dan HANYA dibaca oleh server.ts.
+# Key tidak pernah dikirim ke browser, jadi tidak ada yang bisa mencurinya
+# dari sisi klien. `.env.example` sengaja diizinkan agar tetap bisa
+# di-commit sebagai template.
 .env
 .env.*
 !.env.example

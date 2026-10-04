@@ -27,6 +27,7 @@
 <script src="js/data/archetypes.js"></script>
 <script src="js/data/playbooks.js"></script>
 <script src="js/core/conductor.js"></script>
+<script src="js/core/vision.js"></script>
 <script src="js/core/ai.js"></script>
 <script src="js/core/export.js"></script>
 <script src="js/core/storage.js"></script>
@@ -331,7 +332,13 @@
     ["Hijab Instan Kaos", "FASHION"],
     ["Panci Anti Lengket", "HOME"],
     ["Suplemen Kolagen Kulit", "HEALTH"],
-    ["Multivitamin Anak", "HEALTH"]
+    ["Multivitamin Anak", "HEALTH"],
+    /* Kosmetik harus masuk ke kategori yang sama dengan skincare, bukan FASHION. */
+    ["Matte Lipstik Velvet", "SKINCARE"],
+    ["Cushion Foundation Natural", "SKINCARE"],
+    ["Maskara Volume Ekstra", "SKINCARE"],
+    ["Parfum Wanita Floral", "SKINCARE"],
+    ["Sampo Anti Ketombe", "SKINCARE"]
   ];
   detectCases.forEach(function (c) {
     var got = FA.detectPlaybook(c[0]);
@@ -405,6 +412,184 @@
   check("renderCaption memuat 3 hook", (capHtml.match(/class="hook/g) || []).length >= 3);
   var flowHtml = FA.renderFlowTab(P);
   check("renderFlowTab memuat langkah Flow", flowHtml.indexOf("Omni Flash") !== -1);
+
+  /* --------------------------------------- 14. Vision: normalisasi */
+  group("14. Normalisasi hasil analisis gambar");
+  check("FA.Vision termuat", !!(FA.Vision && FA.Vision.normalize && FA.Vision.prepare));
+
+  (function () {
+    // Keluaran model sering berantakan. normalize() harus tahan terhadap itu.
+    var messy = FA.Vision.normalize({
+      productName: "  Glow Serum  ",
+      category: "skincare",
+      confidence: "0.86",
+      productDescription: "a frosted glass bottle",
+      dominantColors: ["#FFF", "bukan-warna", "#C9A961", "#12345678", "#AAAAAA", "#BBBBBB"],
+      suggestedPains: ["kusam", "", "  berminyak  ", "a", "b", "c"],
+      suggestedBenefits: "bukan array",
+      packaging: null,
+    });
+    check("nama produk di-trim", messy.productName === "Glow Serum");
+    check("kategori dijadikan huruf besar", messy.category === "SKINCARE");
+    check("confidence string diubah jadi angka", messy.confidence === 0.86);
+    check("kategori tak dikenal dikosongkan",
+      FA.Vision.normalize({ category: "KATEGORI_NGAWUR" }).category === "");
+    // Dari 6 entri: "bukan-warna" dibuang, sisanya 5 valid
+    // (#FFF, #C9A961, #12345678, #AAAAAA, #BBBBBB) -> tepat di batas 5.
+    check("warna tidak valid dibuang, sisanya dipertahankan",
+      messy.dominantColors.length === 5 &&
+      messy.dominantColors.indexOf("bukan-warna") === -1 &&
+      messy.dominantColors[0] === "#FFF");
+    check("warna valid di luar batas 5 dipotong",
+      FA.Vision.normalize({
+        dominantColors: ["#111111", "#222222", "#333333", "#444444", "#555555", "#666666", "#777777"],
+      }).dominantColors.length === 5);
+    check("daftar pain dibersihkan dari entri kosong",
+      messy.suggestedPains.length === 2 && messy.suggestedPains[1] === "berminyak");
+    check("field bukan array jadi array kosong",
+      Array.isArray(messy.suggestedBenefits) && messy.suggestedBenefits.length === 0);
+    check("packaging null tidak bikin error",
+      messy.packaging && messy.packaging.type === "");
+    check("confidence di luar 0-1 dijepit",
+      FA.Vision.normalize({ confidence: 99 }).confidence === 1 &&
+      FA.Vision.normalize({ confidence: -5 }).confidence === 0);
+    check("confidence bukan angka jadi 0",
+      FA.Vision.normalize({ confidence: "tinggi" }).confidence === 0);
+    check("objek kosong tetap menghasilkan bentuk valid",
+      (function () {
+        var e = FA.Vision.normalize({});
+        return e.productName === "" && e.category === "" &&
+               Array.isArray(e.suggestedPains) && e.dominantColors.length === 0;
+      })());
+    check("normalize(undefined) tidak crash", FA.Vision.normalize(undefined).productName === "");
+  })();
+
+  /* --------------------------------------- 15. Vision memengaruhi prompt */
+  group("15. Analisis gambar memengaruhi isi prompt");
+
+  (function () {
+    var withAI = JSON.parse(JSON.stringify(refBrief));
+    // Kosongkan pain & audience supaya saran analisis yang dipakai.
+    // (Kalau kolom ini terisi, isian pengguna memang HARUS menang —
+    //  perilaku itu diuji terpisah di blok 16.)
+    withAI.pain = "";
+    withAI.audience = "";
+    withAI.analysis = FA.Vision.normalize({
+      productName: "Glow Serum Vitamin C",
+      category: "SKINCARE",
+      confidence: 0.9,
+      productDescription: "a frosted glass dropper bottle with a brushed gold cap",
+      labelText: "GLOW SERUM",
+      visualMood: "clean and premium",
+      suggestedSetting: "a bright marble bathroom counter",
+      suggestedLighting: "soft diffused morning light from camera-left",
+      suggestedWardrobe: "a soft cream linen shirt",
+      suggestedPains: ["kulit kusam dan nggak cerah"],
+      suggestedBenefits: ["kulit tampak lebih cerah"],
+      suggestedAudience: "wanita 20-30 tahun pekerja kantoran",
+      usageHint: "teteskan tiga tetes lalu tepuk lembut",
+    });
+    withAI.analysis.source = "ai";
+
+    var A = FA.generateProject(withAI, { seed: 999 });
+    var B = FA.generateProject(JSON.parse(JSON.stringify(refBrief)), { seed: 999 });
+
+    check("deskripsi produk masuk ke blok REFERENCE",
+      A.scenes[0].prompt.indexOf("frosted glass dropper bottle") !== -1);
+    check("deskripsi produk masuk ke blok CONTINUITY",
+      A.scenes[0].prompt.indexOf("frosted glass dropper bottle") !== -1 &&
+      A.scenes[3].prompt.indexOf("frosted glass dropper bottle") !== -1);
+    check("teks label ikut dikunci",
+      A.scenes[0].prompt.indexOf('"GLOW SERUM"') !== -1);
+    check("lokasi dari analisis dipakai",
+      A.scenes[0].prompt.indexOf("marble bathroom counter") !== -1);
+    check("mood visual masuk ke colour grade",
+      A.scenes[0].prompt.indexOf("clean and premium") !== -1);
+    check("pain dari analisis dipakai",
+      A.vars.pain === "kulit kusam dan nggak cerah", A.vars.pain);
+    check("benefit dari analisis dipakai",
+      A.vars.benefit === "kulit tampak lebih cerah", A.vars.benefit);
+    check("audiens dari analisis dipakai",
+      A.vars.audience === "wanita 20-30 tahun pekerja kantoran", A.vars.audience);
+    check("prompt dengan AI berbeda dari tanpa AI",
+      A.scenes[0].prompt !== B.scenes[0].prompt);
+    check("prompt tanpa AI tidak menyebut deskripsi",
+      B.scenes[0].prompt.indexOf("frosted glass dropper bottle") === -1);
+    check("prompt dengan AI tetap lolos validasi", A.valid === true);
+    check("semua scene dengan AI tetap lolos",
+      A.scenes.every(function (s) { return s.validation.every(function (c) { return c.pass; }); }));
+    check("blok continuity tetap identik meski ada analisis",
+      (function () {
+        var blocks = A.scenes.map(function (s) {
+          var m = s.prompt.match(/\[CONTINUITY LOCK[^\]]*\]([\s\S]*?)\n\n/);
+          return m ? m[1].trim() : "";
+        });
+        return blocks.every(function (b) { return b === blocks[0] && b.length > 0; });
+      })());
+    check("analisis tercatat di project", A.analysisSource === "ai");
+  })();
+
+  /* --------------------------------------- 16. Pengaturan kolom tidak ditimpa */
+  group("16. Analisis tidak menimpa isian pengguna");
+  (function () {
+    // applyAnalysisToBrief ada di UI; di sini diuji prinsipnya lewat brief:
+    // brief.pain yang sudah diisi harus menang atas saran analisis.
+    var b = JSON.parse(JSON.stringify(refBrief));
+    b.pain = "masalah ketikan pengguna";
+    b.analysis = FA.Vision.normalize({
+      category: "SKINCARE",
+      suggestedPains: ["saran dari model"],
+      suggestedBenefits: ["manfaat dari model"],
+    });
+    var P2 = FA.generateProject(b, { seed: 7 });
+    check("pain ketikan pengguna dipakai, bukan saran model",
+      P2.vars.pain === "masalah ketikan pengguna", P2.vars.pain);
+    check("benefit tetap boleh dari model",
+      P2.vars.benefit === "manfaat dari model", P2.vars.benefit);
+  })();
+
+  /* --------------------------------------- 17. Vision: klien status */
+  group("17. Klien status AI");
+  (function () {
+    check("FA.Vision.available() mengenali protokol http",
+      typeof FA.Vision.available() === "boolean");
+    check("selectedModel/setSelectedModel tersedia",
+      typeof FA.Vision.selectedModel === "function" &&
+      typeof FA.Vision.setSelectedModel === "function");
+
+    // Regresi: status() harus MENERUSKAN daftar model dari server.
+    // Bug sebelumnya: field `models` tidak diteruskan, sehingga pemilih
+    // model di UI selalu hanya menampilkan satu opsi.
+    //
+    // Runner ini sinkron, jadi hasilnya dicatat lewat pemeriksaan bentuk
+    // objek yang sudah diketahui pasti dari kode server — bukan lewat
+    // fetch palsu yang asinkron (yang akan tercatat setelah ringkasan).
+    var fakeStatusResponse = {
+      ok: true,
+      vision: {
+        configured: true, mock: false, model: "glm-5.3-flash",
+        models: ["glm-5.3-flash", "mimo-v2.6-pro", "kimi-k3"],
+        baseUrlHost: "gateway.test", reason: null,
+      },
+      text: { model: "mimo-v2.5-pro" },
+    };
+    var mapped = FA.Vision.mapStatus(fakeStatusResponse);
+    check("status() meneruskan daftar models dari server",
+      Array.isArray(mapped.models) && mapped.models.length === 3, JSON.stringify(mapped.models));
+    check("status() meneruskan model default", mapped.model === "glm-5.3-flash");
+    check("status() meneruskan host gateway", mapped.baseUrlHost === "gateway.test");
+    check("status() meneruskan model teks", mapped.textModel === "mimo-v2.5-pro");
+
+    // Bentuk respons tanpa `models` harus tetap aman (fallback satu model).
+    var noModels = FA.Vision.mapStatus({
+      ok: true, vision: { configured: true, model: "gpt-5.6" }, text: {},
+    });
+    check("respons tanpa daftar models tetap menghasilkan satu opsi",
+      Array.isArray(noModels.models) && noModels.models.length === 1 &&
+      noModels.models[0] === "gpt-5.6");
+    check("respons tanpa model sama sekali tidak crash",
+      FA.Vision.mapStatus({}).models.length === 0);
+  })();
 
   /* --------------------------------------- Ringkasan */
   var out = document.getElementById("out");

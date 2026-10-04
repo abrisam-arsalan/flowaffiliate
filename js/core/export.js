@@ -36,6 +36,17 @@ FA.buildExportPackage = function (project) {
   L.push("Gaya visual: " + FA.STYLES[project.styleId].label);
   L.push("Suara      : " + b.voice.label + " (" + b.voice.descriptor + ")");
   L.push("Pacing     : " + FA.PACING[project.pacingId].label);
+  L.push("Analisis   : " + (
+    project.analysisSource === "ai"
+      ? "AI vision" + (project.analysis && project.analysis.model
+          ? " (" + project.analysis.model + ")" : "")
+      : project.analysisSource === "mock"
+        ? "mode uji AI_MOCK (tanpa jaringan)"
+        : "heuristik keyword (tanpa AI)"
+  ));
+  if (project.analysis && project.analysis.productDescription) {
+    L.push("Deskripsi  : " + project.analysis.productDescription);
+  }
   L.push("");
 
   project.scenes.forEach(function (s) {
