@@ -1,4 +1,8 @@
 # ── Log & artefak pengembangan ──────────────────────────────
+# `/_*.txt` menangkap semua file temp yang dibuat di root repo
+# (termasuk pesan commit) supaya tidak ikut ter-commit lagi.
+/_*.txt
+/_*.pid
 _srv-*.txt
 _srv.pid
 _fg-*.txt
