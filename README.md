@@ -172,6 +172,37 @@ kesehatan absolut.
 
 ---
 
+## Deploy
+
+### Lokal
+
+```bash
+bun run server.ts        # http://localhost:3000
+```
+
+### GitHub
+
+Repo: <https://github.com/abrisam-arsalan/flowaffiliate>
+
+Sudah ada workflow `.github/workflows/deploy.yml` yang terpicu otomatis pada
+setiap push ke `main` (atau manual via tab **Actions → Run workflow**).
+
+**Satu langkah wajib sekali jalan sebelum deploy pertama berhasil:**
+
+> **Settings → Pages → Source: `GitHub Actions`**
+
+Tanpa ini, langkah *Konfigurasi GitHub Pages* akan gagal. Penyebabnya bukan
+konfigurasi workflow, melainkan batasan resmi `actions/configure-pages`:
+opsi `enablement` **tidak boleh** memakai `GITHUB_TOKEN`, jadi workflow tidak
+bisa mengaktifkan Pages sendiri — harus pemilik repo.
+
+Setelah Pages aktif, push berikutnya akan menghasilkan situs statis di
+`https://abrisam-arsalan.github.io/flowaffiliate/`.
+
+Halaman /demo dan /test tersedia di bawah URL yang sama.
+
+---
+
 ## Riwayat pengujian
 
 Test suite mencakup **117 pemeriksaan**, termasuk seluruh **84 kombinasi**
