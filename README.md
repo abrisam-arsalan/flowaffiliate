@@ -13,12 +13,30 @@ Implementasi dari `PRD-FlowAffiliate.md`.
 
 ## Cara menjalankan
 
-**Buka `flowaffiliate/index.html` di browser.** Selesai.
+**Paling cepat — buka `index.html` di browser.** Selesai.
 
-Tidak perlu install, tidak perlu build, tidak perlu server. Aplikasi ini
-zero-dependency dan berjalan sepenuhnya di perangkat kamu.
+Aplikasi ini zero-dependency dan berjalan sepenuhnya di perangkat kamu,
+tanpa install, tanpa build, tanpa server.
 
-> **Kenapa tanpa server?** Conductor Engine di aplikasi ini memang
+### Lewat server lokal (opsional)
+
+Kalau kamu lebih suka akses lewat `http://localhost:3000`, jalankan:
+
+```bash
+bun run server.ts
+```
+
+| URL | Isi |
+|---|---|
+| `http://localhost:3000/` | Aplikasi |
+| `http://localhost:3000/demo` | Mode demo, terisi otomatis |
+| `http://localhost:3000/test` | Test suite |
+
+Server ini **menolak berkas internal** (`.env`, `.git`, log, `_*.pid`) dengan
+respons 404 — `.gitignore` hanya melindungi Git, tidak memengaruhi layer HTTP.
+Ini penting karena `.env` menyimpan API key.
+
+> **Kenapa tanpa server pun bisa?** Conductor Engine di aplikasi ini memang
 > deterministik — seluruh logika pembuatan prompt ada di sisi klien. Efek
 > sampingnya bagus: foto produk kamu **tidak pernah dikirim ke mana pun**.
 
