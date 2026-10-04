@@ -45,6 +45,10 @@ Ini penting karena `.env` menyimpan API key.
 Buka `index.html?demo=1` untuk memuat contoh produk (Glow Serum Vitamin C)
 secara otomatis.
 
+> Rute pendek `/demo` dan `/test` **hanya ada di server lokal**. Di GitHub Pages
+> — yang murni statis tanpa server — gunakan `index.html?demo=1` dan
+> `test-suite.html` secara langsung.
+
 ### Menjalankan test suite
 
 Buka `flowaffiliate/test-suite.html` di browser. Hasil muncul di halaman,
