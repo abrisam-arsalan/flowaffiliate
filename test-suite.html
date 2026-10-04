@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<title>FlowAffiliate — Test Suite</title>
+<style>
+  body { background:#0e1013; color:#eef2f6; font-family: ui-monospace, Consolas, monospace;
+         font-size:13px; padding:16px; line-height:1.6; }
+  h1 { font-size:16px; margin:0 0 12px; }
+  .grp { margin:14px 0 6px; color:#60a5fa; font-weight:700; }
+  .p { color:#4ade80; }
+  .f { color:#f87171; font-weight:700; }
+  .sum { margin-top:18px; padding:12px; border-radius:8px; font-size:15px; font-weight:700; }
+  .sum.ok { background:#06240f; color:#4ade80; border:1px solid #2f7d4c; }
+  .sum.bad { background:#2a0f0f; color:#f87171; border:1px solid #7d2f2f; }
+  #out { white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<h1>FlowAffiliate — Headless Test Suite (browser runtime)</h1>
+<div id="out"></div>
+
+<!-- modul aplikasi, urutan sama seperti index.html -->
+<script src="js/core/utils.js"></script>
+<script src="js/data/commands.js"></script>
+<script src="js/data/platforms.js"></script>
+<script src="js/data/archetypes.js"></script>
+<script src="js/data/playbooks.js"></script>
+<script src="js/core/conductor.js"></script>
+<script src="js/core/ai.js"></script>
+<script src="js/core/export.js"></script>
+<script src="js/core/storage.js"></script>
+<script src="js/ui/render.js"></script>
+
+<script>
+/* =====================================================================
+ * Test suite — versi browser dari test/run-tests.ts
+ * Menulis hasil ke #out dan ke window.__TEST_RESULT untuk dibaca otomatis.
+ * =================================================================== */
+(function () {
+  var lines = [];
+  var passed = 0, failed = 0, failures = [];
+
+  function group(name) { lines.push({ t: "grp", s: name }); }
+  function check(name, cond, detail) {
+    if (cond) { passed++; lines.push({ t: "p", s: "  ✓ " + name }); }
+    else {
+      failed++;
+      var d = detail ? " — " + detail : "";
+      failures.push(name + d);
+      lines.push({ t: "f", s: "  ✗ " + name + d });
+    }
+  }
+
+  /* ------------------------------------------------ 1. Integritas modul */
+  group("1. Integritas modul");
+  check("utils termuat", !!(FA.makeRng && FA.fill && FA.countWords));
+  check("commands termuat", !!(FA.COMMANDS && FA.lookupCommand));
+  check("platforms termuat", !!(FA.PLATFORMS && FA.VOICES && FA.STYLES));
+  check("archetypes termuat", !!(FA.ARCHETYPES && FA.ARCHETYPE_ORDER));
+  check("playbooks termuat", !!(FA.PLAYBOOKS && FA.detectPlaybook));
+  check("conductor termuat", !!(FA.generateProject && FA.validateProject));
+  check("export termuat", !!(FA.buildExportPackage && FA.buildProjectJSON));
+  check("render termuat", !!(FA.renderScenes && FA.renderCaption));
+  check("storage termuat", !!(FA.Store && FA.Store.save));
+
+  /* ------------------------------------------------ 2. Bank command */
+  group("2. Bank command");
+  var totalCmd = FA.COMMANDS.ugc.length + FA.COMMANDS.ad.length + FA.COMMANDS.lock.length;
+  check("minimal 60 command", totalCmd >= 60, "ada " + totalCmd);
+  check("command UGC >= 30", FA.COMMANDS.ugc.length >= 30, "ada " + FA.COMMANDS.ugc.length);
+  check("command iklan >= 15", FA.COMMANDS.ad.length >= 15, "ada " + FA.COMMANDS.ad.length);
+  check("command continuity = 15", FA.COMMANDS.lock.length === 15, "ada " + FA.COMMANDS.lock.length);
+  check("semua command punya deskripsi", FA.COMMANDS.ugc.concat(FA.COMMANDS.ad, FA.COMMANDS.lock)
+    .every(function (c) { return typeof c.fn === "string" && c.fn.length > 5; }));
+  /* Catatan: /UGCHOOK memang muncul di daftar UGC DAN daftar Advertisement
+   * pada handbook sumber, jadi keunikan hanya diuji per grup. */
+  check("tidak ada command duplikat dalam satu grup", (function () {
+    var ok = true;
+    [FA.COMMANDS.ugc, FA.COMMANDS.ad, FA.COMMANDS.lock].forEach(function (grp) {
+      var seen = {};
+      grp.forEach(function (c) { if (seen[c.cmd]) ok = false; seen[c.cmd] = 1; });
+    });
+    return ok;
+  })());
+  lines.push({ t: "p", s: "  → " + totalCmd + " command (" + FA.COMMANDS.ugc.length + " UGC / " +
+    FA.COMMANDS.ad.length + " iklan / " + FA.COMMANDS.lock.length + " continuity)" });
+
+  /* --------------------------------------- 3. Semua kombinasi generate */
+  group("3. Generate lintas semua kombinasi");
+  var combos = [];
+  FA.PLAYBOOK_ORDER.forEach(function (cat) {
+    ["cepat", "standar", "lengkap"].forEach(function (pace) {
+      ["tiktok", "shopee", "instagram", "youtube"].forEach(function (plat) {
+        combos.push({ cat: cat, pace: pace, plat: plat });
+      });
+    });
+  });
+
+  var comboOk = 0, placeholderLeaks = 0, durationViolations = 0, continuityMismatch = 0;
+
+  combos.forEach(function (cb) {
+    var brief = {
+      productName: "Produk " + cb.cat, category: cb.cat, platform: cb.plat, pacing: cb.pace,
+      style: FA.PLAYBOOKS[cb.cat].defaultStyle, voice: FA.PLAYBOOKS[cb.cat].defaultVoice,
+      pain: "masalah pelanggan", audience: "target pasar", price: "Rp 50.000",
+      promo: "diskon", hasCharacterRef: false
+    };
+    var p = FA.generateProject(brief, { seed: 4242 });
+
+    var allPass = true;
+    p.scenes.forEach(function (s) {
+      (s.validation || []).forEach(function (c) { if (!c.pass) allPass = false; });
+    });
+    (p.projectChecks || []).forEach(function (c) { if (!c.pass) allPass = false; });
+    if (allPass) comboOk++;
+
+    if (p.scenes.some(function (s) { return s.prompt.indexOf("{{") !== -1; })) placeholderLeaks++;
+    if (p.scenes.some(function (s) { return [4, 6, 8, 10].indexOf(s.duration) === -1; })) durationViolations++;
+
+    var blocks = p.scenes.map(function (s) {
+      var m = s.prompt.match(/\[CONTINUITY LOCK[^\]]*\]([\s\S]*?)\n\n/);
+      return m ? m[1].trim() : "";
+    });
+    var identical = blocks.length > 0 && blocks.every(function (b) { return b === blocks[0] && b.length > 0; });
+    if (!identical) continuityMismatch++;
+  });
+
+  check("semua " + combos.length + " kombinasi lolos validasi", comboOk === combos.length, comboOk + "/" + combos.length);
+  check("tidak ada placeholder bocor", placeholderLeaks === 0, placeholderLeaks + " kombinasi");
+  check("durasi selalu 4/6/8/10 detik", durationViolations === 0, durationViolations + " pelanggaran");
+  check("blok continuity selalu identik", continuityMismatch === 0, continuityMismatch + " tidak konsisten");
+
+  /* --------------------------------------- 4. Aturan kualitas prompt */
+  group("4. Aturan kualitas prompt");
+  var refBrief = {
+    productName: "Glow Serum Vitamin C", category: "SKINCARE", platform: "tiktok",
+    pacing: "standar", style: "aesthetic", voice: "sahabat",
+    pain: "kulit kusam dan berminyak di siang hari", audience: "wanita 20-30 tahun",
+    price: "Rp 89.000", promo: "diskon 40%", hasCharacterRef: true
+  };
+  var P = FA.generateProject(refBrief, { seed: 999 });
+  window.__P = P;
+
+  var BLOCKS = ["[REFERENCE]", "[CONTINUITY LOCK", "[SHOT]", "[SETTING & LIGHTING]",
+                "[CAMERA]", "[AUDIO]", "[ON-SCREEN TEXT]", "[OUTPUT]"];
+
+  check("menghasilkan tepat 6 scene", P.scenes.length === 6, P.scenes.length + "");
+  check("total durasi 44 detik pada pacing standar", P.totalDuration === 44, P.totalDuration + "");
+  check("setiap scene memuat 8 blok wajib", P.scenes.every(function (s) {
+    return BLOCKS.every(function (b) { return s.prompt.indexOf(b) !== -1; });
+  }));
+  check("setiap scene menyatakan single continuous shot", P.scenes.every(function (s) {
+    return /single continuous shot/i.test(s.prompt);
+  }));
+  check("setiap scene menyatakan no jump cuts", P.scenes.every(function (s) {
+    return /no jump cuts/i.test(s.prompt);
+  }));
+  check("setiap scene menyebut aspect ratio", P.scenes.every(function (s) {
+    return /Aspect ratio: 9:16/.test(s.prompt);
+  }));
+  check("setiap scene menyebut model Omni Flash", P.scenes.every(function (s) {
+    return /Gemini Omni Flash/.test(s.prompt);
+  }));
+  check("setiap scene menyebut nama produk", P.scenes.every(function (s) {
+    return s.prompt.indexOf("Glow Serum Vitamin C") !== -1;
+  }));
+  check("setiap scene punya dialog dalam tanda kutip", P.scenes.every(function (s) {
+    return /speaking directly to the viewer:\n"[^"]+"/.test(s.prompt);
+  }));
+  check("setiap scene punya teks layar dalam tanda kutip", P.scenes.every(function (s) {
+    return /Show the text "[^"]+"/.test(s.prompt);
+  }));
+  check("dialog tidak melampaui word budget", P.scenes.every(function (s) {
+    return FA.countWords(s.dialogue) <= FA.wordBudget(s.duration);
+  }));
+  check("teks layar maksimal 5 kata", P.scenes.every(function (s) {
+    return FA.countWords(s.onscreen) <= FA.ONSCREEN_MAX_WORDS;
+  }));
+  check("blok SHOT memakai subjek 'The talent'", P.scenes.every(function (s) {
+    var shot = s.prompt.split("[SHOT]\n")[1].split("\n\n")[0];
+    return /The talent|the talent's hand/.test(shot);
+  }));
+  check("frasa masalah tidak bocor ke blok SHOT", P.scenes.every(function (s) {
+    var shot = s.prompt.split("[SHOT]\n")[1].split("\n\n")[0];
+    return shot.indexOf("kulit kusam dan berminyak") === -1;
+  }));
+  check("kalimat grade diawali huruf kapital", /Colour grade: [A-Z]/.test(P.scenes[0].prompt));
+  check("blok SETTING diawali huruf kapital", P.scenes.every(function (s) {
+    var set = s.prompt.split("[SETTING & LIGHTING]\n")[1].split("\n\n")[0];
+    return /^[A-Z]/.test(set);
+  }));
+  check("blok SHOT diawali huruf kapital", P.scenes.every(function (s) {
+    var shot = s.prompt.split("[SHOT]\n")[1];
+    return /^[A-Z]/.test(shot);
+  }));
+  check("tidak ada placeholder di seluruh prompt", P.scenes.every(function (s) {
+    return s.prompt.indexOf("{{") === -1;
+  }));
+
+  var painRepeats = P.scenes.filter(function (s) {
+    return s.dialogue.indexOf("kulit kusam dan berminyak") !== -1;
+  }).length;
+  check("frasa masalah panjang tidak diulang", painRepeats <= 1, "muncul " + painRepeats + "x");
+
+  /* --------------------------------------- 5. Validator mendeteksi error */
+  group("5. Validator mendeteksi kesalahan");
+  var brokenScene = { index: 1, duration: 8, _productName: "X", prompt: "[SHOT]\nNothing useful here." };
+  var brokenChecks = FA.validateScene(brokenScene);
+  check("validator menolak prompt tanpa blok wajib", brokenChecks.some(function (c) { return !c.pass; }));
+  check("validator memeriksa 9 aspek per scene", brokenChecks.length === 9, brokenChecks.length + "");
+
+  var longDialog = {
+    index: 1, duration: 4, _productName: "X",
+    prompt: BLOCKS.join("\n") + '\nspeaking directly to the viewer:\n"' +
+      new Array(41).join("kata ") + '"' + '\nIndonesian female voice, warm\nShow the text "Dua Kata"'
+  };
+  var longChecks = FA.validateScene(longDialog);
+  check("validator menolak dialog melebihi budget", longChecks.some(function (c) {
+    return c.id === "V5" && !c.pass;
+  }));
+
+  /* --------------------------------------- 6. Penyaring klaim berbahaya */
+  group("6. Penyaring klaim berbahaya");
+  var claimBrief = {
+    productName: "Obat Herbal Ajaib", category: "HEALTH", platform: "tiktok", pacing: "standar",
+    style: "studio", voice: "ahli", pain: "penyakit kronis", audience: "semua orang",
+    price: "", promo: "", hasCharacterRef: false
+  };
+  var claimViolations = 0;
+  for (var i = 0; i < 40; i++) {
+    var pp = FA.generateProject(claimBrief, { seed: i * 7919 });
+    if (pp.scenes.some(function (s) {
+      return /menyembuhkan|mengobati|dijamin sembuh|100% ampuh/i.test(s.prompt);
+    })) claimViolations++;
+  }
+  check("tidak menghasilkan klaim kesehatan absolut", claimViolations === 0, claimViolations + " pelanggaran");
+
+  /* --------------------------------------- 7. Caption & hashtag */
+  group("7. Caption & hashtag");
+  ["tiktok", "shopee", "instagram", "youtube"].forEach(function (plat) {
+    var b2 = JSON.parse(JSON.stringify(refBrief));
+    b2.platform = plat;
+    var p2 = FA.generateProject(b2, { seed: 77 });
+    check("caption " + plat + " punya 3 varian hook", p2.caption.hooks.length === 3);
+    check("caption " + plat + " punya hashtag", p2.caption.hashtags.length > 0);
+    check("caption " + plat + " menyertakan CTA", p2.caption.cta.length > 10);
+    check("caption " + plat + " punya jam posting", !!p2.caption.bestTime);
+    check("caption " + plat + " tidak melebihi batas platform",
+      p2.caption.caption.length <= p2.caption.captionMax);
+  });
+
+  /* --------------------------------------- 7b. Pemilihan varian hook */
+  group("7b. Pemilihan varian hook");
+  (function () {
+    var hp = FA.generateProject(JSON.parse(JSON.stringify(refBrief)), { seed: 555 });
+    var captionAwal = hp.caption.caption;
+
+    check("hook default adalah indeks 0", hp.caption.selectedHook === 0);
+    check("caption default memakai hook 0",
+      captionAwal.indexOf(hp.caption.hooks[0].text) === 0);
+
+    FA.selectHook(hp, 1);
+    check("setelah pilih hook 1, caption berubah", hp.caption.caption !== captionAwal);
+    check("caption baru memakai teks hook 1",
+      hp.caption.caption.indexOf(hp.caption.hooks[1].text) === 0);
+    check("body dan CTA tetap dipertahankan",
+      hp.caption.caption.indexOf(hp.caption.cta) !== -1 &&
+      hp.caption.caption.indexOf(hp.caption.body) !== -1);
+    check("wordCount diperbarui", hp.caption.wordCount === FA.countWords(hp.caption.caption));
+
+    FA.selectHook(hp, 2);
+    check("bisa pindah ke hook 2",
+      hp.caption.caption.indexOf(hp.caption.hooks[2].text) === 0);
+
+    // Indeks tidak valid harus jatuh kembali ke 0, bukan error.
+    FA.selectHook(hp, 99);
+    check("indeks tidak valid kembali ke hook 0",
+      hp.caption.selectedHook === 0 &&
+      hp.caption.caption.indexOf(hp.caption.hooks[0].text) === 0);
+
+    // Render harus menandai kartu yang terpilih.
+    FA.selectHook(hp, 1);
+    var html = FA.renderCaption(hp);
+    check("renderCaption menandai hook terpilih", html.indexOf("✓ Dipakai") !== -1);
+    check("renderCaption memakai data-usehook", html.indexOf("data-usehook") !== -1);
+  })();
+
+  /* --------------------------------------- 8. Export */
+  group("8. Export");
+  var pkg = FA.buildExportPackage(P);
+  check("paket export memuat semua 6 scene", [1, 2, 3, 4, 5, 6].every(function (n) {
+    return pkg.indexOf("SCENE " + n + "/6") !== -1;
+  }));
+  check("paket export memuat cara pakai Flow", pkg.indexOf("CARA PAKAI DI GOOGLE FLOW") !== -1);
+  check("paket export memuat setelan Flow", pkg.indexOf("Gemini Omni Flash") !== -1);
+  check("paket export memuat caption", pkg.indexOf("CAPTION & HASHTAG") !== -1);
+  check("paket export memuat narasi tiap scene", P.scenes.every(function (s) {
+    return pkg.indexOf(s.dialogue) !== -1;
+  }));
+  check("paket export memuat teks layar", P.scenes.every(function (s) {
+    return pkg.indexOf(s.onscreen) !== -1;
+  }));
+
+  var json = JSON.parse(FA.buildProjectJSON(P));
+  check("JSON punya 6 scene", json.scenes.length === 6);
+  check("JSON valid dan bisa diparse", typeof json.id === "string");
+
+  var srt = FA.buildSRT(P);
+  check("SRT punya 6 blok waktu", (srt.match(/-->/g) || []).length === 6);
+  check("SRT diawali timestamp 00:00:00", srt.indexOf("00:00:00,000") !== -1);
+
+  /* --------------------------------------- 9. Deteksi kategori */
+  group("9. Deteksi kategori otomatis");
+  var detectCases = [
+    ["Serum Vitamin C Glow", "SKINCARE"],
+    ["Kemeja Linen Premium", "FASHION"],
+    ["Kopi Susu Gula Aren", "FNB"],
+    ["Earbuds Bluetooth Pro", "GADGET"],
+    ["Rak Dapur Serbaguna", "HOME"],
+    ["Vitamin Daya Tahan Tubuh", "HEALTH"],
+    ["Barang Aneh Tanpa Kategori", "UNIVERSAL"],
+    /* Regresi: kata ambigu tidak boleh mengalahkan sinyal kuat. */
+    ["Serum Vitamin C", "SKINCARE"],
+    ["Toner Vitamin B5", "SKINCARE"],
+    ["Sunscreen SPF 50", "SKINCARE"],
+    ["Powerbank 20000mAh Fast Charging", "GADGET"],
+    ["TWS Bluetooth Gaming", "GADGET"],
+    ["Sambal Bawang Level 10", "FNB"],
+    ["Keripik Pisang Manis", "FNB"],
+    ["Hijab Instan Kaos", "FASHION"],
+    ["Panci Anti Lengket", "HOME"],
+    ["Suplemen Kolagen Kulit", "HEALTH"],
+    ["Multivitamin Anak", "HEALTH"]
+  ];
+  detectCases.forEach(function (c) {
+    var got = FA.detectPlaybook(c[0]);
+    check('deteksi "' + c[0] + '" → ' + c[1], got === c[1], "dapat " + got);
+  });
+
+  /* --------------------------------------- 10. Determinisme */
+  group("10. Determinisme");
+  var a = FA.generateProject(refBrief, { seed: 12345 });
+  var b = FA.generateProject(refBrief, { seed: 12345 });
+  check("seed sama menghasilkan prompt identik", a.scenes.every(function (s, idx) {
+    return s.prompt === b.scenes[idx].prompt;
+  }));
+  var c3 = FA.generateProject(refBrief, { seed: 54321 });
+  check("seed berbeda menghasilkan variasi", c3.scenes.some(function (s, idx) {
+    return s.prompt !== a.scenes[idx].prompt;
+  }));
+
+  /* --------------------------------------- 11. Storage round-trip */
+  group("11. Simpan & buka kembali");
+  FA.Store.clear();
+  FA.Store.save(P);
+  var lib = FA.Store.all();
+  check("project tersimpan di library", lib.length === 1, lib.length + " tersimpan");
+  if (lib.length) {
+    var revived = FA.Store.revive(lib[0]);
+    check("project bisa dibuka kembali", revived.scenes.length === 6);
+    check("prompt utuh setelah dibuka", revived.scenes[0].prompt === P.scenes[0].prompt);
+    check("caption ikut tersimpan", !!revived.caption && revived.caption.hooks.length === 3);
+  }
+  FA.Store.clear();
+
+  /* --------------------------------------- 12. Edge case */
+  group("12. Edge case");
+  var minimal = FA.generateProject({
+    productName: "X", category: "UNIVERSAL", platform: "tiktok", pacing: "standar",
+    style: "cinematic", voice: "sahabat", pain: "", audience: "", price: "", promo: "",
+    hasCharacterRef: false
+  }, { seed: 1 });
+  check("brief minimal tetap 6 scene", minimal.scenes.length === 6);
+  check("brief minimal tanpa placeholder bocor", minimal.scenes.every(function (s) {
+    return s.prompt.indexOf("{{") === -1;
+  }));
+  check("brief minimal lolos validasi", minimal.valid === true);
+
+  var longName = FA.generateProject({
+    productName: "Produk Dengan Nama Sangat Panjang Sekali Yang Melebihi Batas Normal Untuk Pengujian",
+    category: "SKINCARE", platform: "tiktok", pacing: "lengkap", style: "cinematic",
+    voice: "genz", pain: "", audience: "", price: "", promo: "", hasCharacterRef: false
+  }, { seed: 3 });
+  check("nama panjang tidak merusak prompt", longName.scenes.every(function (s) {
+    return s.prompt.indexOf("{{") === -1;
+  }));
+  check("pacing lengkap menghasilkan 56 detik", longName.totalDuration === 56, longName.totalDuration + "");
+
+  var pacingCepat = FA.generateProject({
+    productName: "X", category: "FNB", platform: "shopee", pacing: "cepat", style: "homey",
+    voice: "genz", pain: "", audience: "", price: "", promo: "", hasCharacterRef: false
+  }, { seed: 5 });
+  check("pacing cepat menghasilkan 26 detik", pacingCepat.totalDuration === 26, pacingCepat.totalDuration + "");
+  check("pacing cepat tetap lolos validasi", pacingCepat.valid === true);
+
+  /* --------------------------------------- Render smoke test */
+  group("13. Render HTML");
+  var sceneHtml = FA.renderScenes(P);
+  check("renderScenes menghasilkan 6 kartu", (sceneHtml.match(/class="scene"/g) || []).length === 6);
+  check("renderScenes memuat tombol copy", sceneHtml.indexOf("data-copy=") !== -1);
+  check("renderScenes memuat perintah command", sceneHtml.indexOf("/ADHOOK") !== -1);
+  var capHtml = FA.renderCaption(P);
+  check("renderCaption memuat hashtag", capHtml.indexOf("tag-cloud") !== -1);
+  check("renderCaption memuat 3 hook", (capHtml.match(/class="hook/g) || []).length >= 3);
+  var flowHtml = FA.renderFlowTab(P);
+  check("renderFlowTab memuat langkah Flow", flowHtml.indexOf("Omni Flash") !== -1);
+
+  /* --------------------------------------- Ringkasan */
+  var out = document.getElementById("out");
+  var html = "";
+  lines.forEach(function (l) {
+    if (l.t === "grp") html += '<div class="grp">' + l.s + "</div>";
+    else html += '<div class="' + l.t + '">' + l.s.replace(/</g, "&lt;") + "</div>";
+  });
+  html += '<div class="sum ' + (failed === 0 ? "ok" : "bad") + '">' +
+    (failed === 0 ? "✓ SEMUA TES LOLOS" : "✗ ADA TES GAGAL") +
+    " — " + passed + " lolos, " + failed + " gagal</div>";
+  if (failures.length) {
+    html += '<div class="f" style="margin-top:10px">Gagal:<br>' +
+      failures.map(function (f) { return "  ✗ " + f.replace(/</g, "&lt;"); }).join("<br>") + "</div>";
+  }
+  out.innerHTML = html;
+
+  window.__TEST_RESULT = {
+    passed: passed,
+    failed: failed,
+    failures: failures,
+    total: passed + failed,
+    combos: combos.length,
+    comboOk: comboOk
+  };
+})();
+</script>
+</body>
+</html>

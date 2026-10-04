@@ -1,0 +1,23 @@
+{
+  "name": "flowaffiliate",
+  "version": "1.0.0",
+  "description": "Generator prompt video affiliate untuk Google Flow + Gemini Omni Flash. Mengubah satu foto produk menjadi 6 prompt scene siap pakai, lengkap dengan narasi Indonesia dan caption per platform.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun run server.ts",
+    "dev": "bun run server.ts"
+  },
+  "keywords": [
+    "google-flow",
+    "gemini-omni-flash",
+    "affiliate",
+    "prompt-generator",
+    "ugc",
+    "indonesia"
+  ],
+  "license": "MIT",
+  "engines": {
+    "bun": ">=1.0.0"
+  }
+}

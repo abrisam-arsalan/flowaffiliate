@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>FlowAffiliate — Generator Prompt Video Affiliate untuk Google Flow</title>
+<meta name="description" content="Ubah satu foto produk jadi 6 prompt scene siap pakai untuk Google Flow (Gemini Omni Flash), lengkap dengan narasi Indonesia dan caption per platform." />
+<link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+
+<!-- ============================ HEADER ============================ -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="brand" id="brandBtn" type="button" title="Kembali ke awal">
+      <span class="brand-mark">FA</span>
+      <span class="brand-text">
+        <strong>FlowAffiliate</strong>
+        <small>Prompt generator untuk Google Flow</small>
+      </span>
+    </button>
+
+    <nav class="topnav">
+      <button class="navlink" data-view="wizard" type="button">Buat Baru</button>
+      <button class="navlink" data-view="library" type="button">Library</button>
+      <button class="navlink" data-view="guide" type="button">Panduan</button>
+      <button class="navlink" data-view="settings" type="button">Pengaturan</button>
+    </nav>
+  </div>
+</header>
+
+<main id="app" class="app">
+
+  <!-- ======================= VIEW: WIZARD ======================= -->
+  <section class="view" id="view-wizard">
+
+    <!-- Progress -->
+    <ol class="steps" id="stepper">
+      <li class="step is-active" data-step="1"><span class="dot">1</span><span class="lbl">Upload Produk</span></li>
+      <li class="step" data-step="2"><span class="dot">2</span><span class="lbl">Buat Prompt</span></li>
+      <li class="step" data-step="3"><span class="dot">3</span><span class="lbl">Prompt &amp; Caption</span></li>
+    </ol>
+
+    <!-- ---------- STEP 1: UPLOAD + BRIEF ---------- -->
+    <div class="panel" id="panel-1">
+      <div class="grid-2">
+
+        <!-- Kolom upload -->
+        <div class="card">
+          <h2 class="card-title">1. Upload gambar / video produk</h2>
+          <p class="muted">Foto produk yang jelas akan menghasilkan prompt yang lebih akurat.
+            Semua gambar diproses di perangkat kamu dan tidak diunggah ke mana pun.</p>
+
+          <div class="dropzone" id="dropzone" tabindex="0" role="button"
+               aria-label="Pilih atau tarik gambar produk ke sini">
+            <div class="dz-icon">↑</div>
+            <div class="dz-main">Tarik gambar ke sini atau <u>pilih file</u></div>
+            <div class="dz-sub">JPG, PNG, WebP · maks 10 MB per file · maks 5 file</div>
+            <input type="file" id="fileInput" accept="image/*,video/*" multiple hidden />
+          </div>
+
+          <div class="thumbs" id="thumbs"></div>
+
+          <div class="divider"><span>atau</span></div>
+          <button class="btn btn-ghost btn-block" id="demoBtn" type="button">
+            Pakai contoh produk (demo)
+          </button>
+        </div>
+
+        <!-- Kolom brief -->
+        <div class="card">
+          <h2 class="card-title">2. Detail produk</h2>
+          <p class="muted">Isi yang kamu tahu saja. Sisanya akan diisi otomatis.</p>
+
+          <div class="field">
+            <label for="fName">Nama produk <span class="req">*</span></label>
+            <input id="fName" type="text" placeholder="cth: Glow Serum Vitamin C" autocomplete="off" />
+          </div>
+
+          <div class="field">
+            <label for="fCategory">Kategori produk <span class="req">*</span></label>
+            <select id="fCategory"></select>
+            <p class="hint" id="categoryHint">Menentukan playbook, gaya visual, dan suara default.</p>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="fPlatform">Platform tujuan</label>
+              <select id="fPlatform"></select>
+            </div>
+            <div class="field">
+              <label for="fPacing">Durasi per scene</label>
+              <select id="fPacing"></select>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="fStyle">Gaya visual</label>
+              <select id="fStyle"></select>
+            </div>
+            <div class="field">
+              <label for="fVoice">Karakter suara</label>
+              <select id="fVoice"></select>
+            </div>
+          </div>
+
+          <details class="advanced">
+            <summary>Kolom opsional (bikin hasil lebih tajam)</summary>
+
+            <div class="field">
+              <label for="fPain">Masalah utama yang dialami pembeli</label>
+              <input id="fPain" type="text" placeholder="cth: kulit kusam dan berminyak di siang hari" autocomplete="off" />
+            </div>
+
+            <div class="field">
+              <label for="fAudience">Target pembeli</label>
+              <input id="fAudience" type="text" placeholder="cth: wanita 20-30 tahun, pekerja kantoran" autocomplete="off" />
+            </div>
+
+            <div class="field-row">
+              <div class="field">
+                <label for="fPrice">Harga</label>
+                <input id="fPrice" type="text" placeholder="cth: Rp 89.000" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="fPromo">Promo</label>
+                <input id="fPromo" type="text" placeholder="cth: diskon 40% hari ini" autocomplete="off" />
+              </div>
+            </div>
+
+            <label class="checkline">
+              <input type="checkbox" id="fCharRef" />
+              <span>Saya juga akan upload foto karakter/model sebagai referensi wajah</span>
+            </label>
+          </details>
+
+          <button class="btn btn-primary btn-block btn-lg" id="generateBtn" type="button" disabled>
+            Buat 6 Prompt Scene
+          </button>
+          <p class="hint center" id="genHint">Lengkapi nama produk dan minimal 1 gambar.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---------- STEP 2: GENERATING ---------- -->
+    <div class="panel hidden" id="panel-2">
+      <div class="card center-card">
+        <div class="spinner" aria-hidden="true"></div>
+        <h2 class="card-title" id="progressTitle">Menganalisis produk…</h2>
+        <p class="muted" id="progressSub">Menyiapkan playbook dan continuity lock.</p>
+        <ul class="progress-list" id="progressList">
+          <li data-p="1">Menganalisis gambar produk</li>
+          <li data-p="2">Memilih playbook kategori</li>
+          <li data-p="3">Menyusun continuity lock</li>
+          <li data-p="4">Merakit 6 prompt scene</li>
+          <li data-p="5">Memvalidasi kualitas prompt</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ---------- STEP 3: RESULTS ---------- -->
+    <div class="panel hidden" id="panel-3">
+
+      <div class="result-head card">
+        <div class="rh-left">
+          <h2 class="rh-title" id="resTitle">—</h2>
+          <div class="pills" id="resPills"></div>
+        </div>
+        <div class="rh-right">
+          <button class="btn btn-secondary" id="copyAllBtn" type="button">Copy Semua 6 Prompt</button>
+          <div class="menu-wrap">
+            <button class="btn btn-ghost" id="moreBtn" type="button" aria-haspopup="true" aria-expanded="false">⋮</button>
+            <div class="menu hidden" id="moreMenu">
+              <button type="button" data-act="regen">Generate ulang paket</button>
+              <button type="button" data-act="export-txt">Download .txt</button>
+              <button type="button" data-act="export-json">Download .json</button>
+              <button type="button" data-act="save">Simpan ke Library</button>
+              <button type="button" data-act="wizard">Buat produk baru</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tabs" role="tablist">
+        <button class="tab is-active" data-tab="prompts" role="tab" type="button">Prompt Scene (6)</button>
+        <button class="tab" data-tab="caption" role="tab" type="button">Caption &amp; Hashtag</button>
+        <button class="tab" data-tab="flow" role="tab" type="button">Cara Pakai di Flow</button>
+      </div>
+
+      <div class="tabpanel" id="tab-prompts"></div>
+      <div class="tabpanel hidden" id="tab-caption"></div>
+      <div class="tabpanel hidden" id="tab-flow"></div>
+    </div>
+  </section>
+
+  <!-- ======================= VIEW: LIBRARY ======================= -->
+  <section class="view hidden" id="view-library">
+    <div class="section-head">
+      <h1>Library</h1>
+      <button class="btn btn-ghost" id="clearLibBtn" type="button">Hapus semua</button>
+    </div>
+    <p class="muted" id="libNote"></p>
+    <div class="lib-grid" id="libGrid"></div>
+  </section>
+
+  <!-- ======================= VIEW: GUIDE ======================= -->
+  <section class="view hidden" id="view-guide">
+    <div class="section-head"><h1>Panduan Pakai di Google Flow</h1></div>
+    <div class="card">
+      <ol class="guide-list">
+        <li><strong>Buka Google Flow</strong><br />Masuk ke <code>labs.google/fx/tools/flow</code> dengan akun Google kamu, lalu buat project baru.</li>
+        <li><strong>Set model &amp; rasio</strong><br />Pilih model <strong>Gemini Omni Flash</strong>, aspect ratio <strong>9:16</strong>, dan resolusi 720p. Untuk uji coba cepat, pakai 360p supaya hemat poin.</li>
+        <li><strong>Upload ingredient</strong><br />Pilih mode <em>Ingredients to Video</em>, lalu upload semua foto produk. Kalau ada, upload juga foto karakter sebagai referensi wajah.</li>
+        <li><strong>Generate Scene 1</strong><br />Copy prompt Scene 1 dari aplikasi ini, paste ke kotak prompt Flow, set durasi sesuai yang tertulis, lalu generate.</li>
+        <li><strong>Lanjut ke Scene 2–6</strong><br />Ulangi untuk setiap scene. Blok <em>Continuity Lock</em> di setiap prompt sudah identik, jadi wajah, pakaian, dan lokasi akan tetap konsisten.</li>
+        <li><strong>Gabungkan &amp; tambah musik</strong><br />Susun 6 klip sesuai urutan. Tambahkan musik trending kalau perlu di CapCut atau editor lain.</li>
+        <li><strong>Upload ke sosial media</strong><br />Pakai caption dan hashtag dari tab Caption. Sesuaikan dengan platform tujuan.</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">Tips supaya hasilnya maksimal</h2>
+      <ul class="tip-list">
+        <li><strong>Kalau wajah masih berubah,</strong> upload foto karakter yang jelas di Flow sebagai ingredient. Itu cara paling efektif untuk mengunci wajah.</li>
+        <li><strong>Kalau dialog terpotong,</strong> pendekkan narasi. Model menolak bicara kalau kalimatnya tidak muat dalam durasi klip.</li>
+        <li><strong>Mulai dari 360p</strong> untuk draft, lalu upscale ke 720p kalau sudah cocok. Biaya poin jadi jauh lebih hemat.</li>
+        <li><strong>Perbaiki dengan obrolan,</strong> bukan generate ulang. Di Flow kamu bisa bilang "cahayanya lebih hangat" atau "perlambat sedikit".</li>
+        <li><strong>Jangan pakai teks panjang di layar.</strong> Teks pendek jauh lebih rapi hasilnya.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ======================= VIEW: SETTINGS ======================= -->
+  <section class="view hidden" id="view-settings">
+    <div class="section-head"><h1>Pengaturan</h1></div>
+
+    <div class="card">
+      <h2 class="card-title">AI Enrichment (opsional)</h2>
+      <p class="muted">
+        Secara default aplikasi ini berjalan <strong>sepenuhnya offline</strong> dan tetap menghasilkan
+        6 prompt lengkap. Kalau kamu memasukkan Google AI Studio API key, narasi dan teks layar akan
+        ditulis ulang oleh Gemini supaya lebih natural dan bervariasi.
+      </p>
+
+      <div class="field">
+        <label for="apiKey">Google AI Studio API key</label>
+        <input id="apiKey" type="password" placeholder="AIza..." autocomplete="off" spellcheck="false" />
+        <p class="hint">
+          Key disimpan hanya di browser kamu (localStorage) dan dikirim langsung ke Google.
+          Dapatkan gratis di <code>aistudio.google.com/apikey</code>.
+        </p>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" id="saveKeyBtn" type="button">Simpan key</button>
+        <button class="btn btn-ghost" id="clearKeyBtn" type="button">Hapus key</button>
+        <button class="btn btn-ghost" id="testKeyBtn" type="button">Tes koneksi</button>
+      </div>
+      <p class="status" id="keyStatus"></p>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">Basis data prompt</h2>
+      <div class="stat-grid" id="dbStats"></div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ============================ TOAST ============================ -->
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<!-- ============================ SCRIPTS (urutan penting) ============================ -->
+<script src="js/core/utils.js"></script>
+<script src="js/data/commands.js"></script>
+<script src="js/data/platforms.js"></script>
+<script src="js/data/archetypes.js"></script>
+<script src="js/data/playbooks.js"></script>
+<script src="js/core/conductor.js"></script>
+<script src="js/core/ai.js"></script>
+<script src="js/core/export.js"></script>
+<script src="js/core/storage.js"></script>
+<script src="js/ui/render.js"></script>
+<script src="js/ui/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+# ── Log & artefak pengembangan ──────────────────────────────
+_srv-*.txt
+_srv.pid
+_fg-*.txt
+_server.log
+_testout.txt
+
+# ── Dependensi ──────────────────────────────────────────────
+node_modules/
+.pnp/
+.pnp.js
+
+# ── Artefak build ───────────────────────────────────────────
+dist/
+build/
+*.tsbuildinfo
+
+# ── Env & rahasia ───────────────────────────────────────────
+# API key Google AI Studio TIDAK PERNAH boleh masuk repo.
+# Simpan di localStorage (dibaca lewat tab Pengaturan) atau di env lokal.
+.env
+.env.*
+!.env.example
+
+# ── Sistem & editor ─────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+.idea/
+.vscode/*
+!.vscode/extensions.json
