@@ -508,6 +508,28 @@ select { cursor: pointer; }
   word-break: break-word;
 }
 
+/* ============================ SARAN KATEGORI ========================== */
+/* Muncul HANYA bila pengguna sudah memilih kategori sendiri dan sistem
+   punya saran berbeda. Tidak pernah menimpa — pengguna yang memutuskan. */
+.suggestion-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  flex-wrap: wrap;
+  border: 1px solid #6b5416;
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  padding: .55rem .7rem;
+  margin: .4rem 0 .8rem;
+  background: rgba(251, 191, 36, .07);
+  font-size: .82rem;
+  color: var(--text-dim);
+}
+.suggestion-bar #suggestionText { flex: 1 1 auto; }
+.suggestion-bar #suggestionText strong { color: var(--warn); }
+.suggestion-actions { display: flex; gap: .35rem; flex: none; }
+
 /* ============================== TOAST ============================== */
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px);

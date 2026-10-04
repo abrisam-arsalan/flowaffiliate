@@ -13,6 +13,12 @@ FA.App = {
     project: null,
     selectedHook: 0,
     busy: false,
+    // Penanda bahwa pengguna sudah memilih kategori sendiri. Setelah true,
+    // TIDAK ADA mekanisme otomatis yang boleh mengubahnya — saran hanya
+    // ditawarkan. Ini yang mencegah bug "kategori berubah sendiri".
+    categoryTouched: false,
+    // Kategori yang sedang ditawarkan lewat bar saran (belum diterima).
+    pendingCategory: null,
   },
 
   /* ==================================================== INIT & BOOTSTRAP */
@@ -198,17 +204,33 @@ FA.App = {
     var catEl = document.getElementById("fCategory");
 
     // Auto-deteksi kategori dari nama produk saat user selesai mengetik.
+    // JANGAN menimpa bila pengguna sudah memilih kategori sendiri — cukup
+    // ditawarkan. Inilah akar laporan bug "kategori tiba-tiba berubah".
     nameEl.addEventListener("blur", function () {
       if (!nameEl.value.trim()) return;
       var detected = FA.detectPlaybook(nameEl.value);
-      if (detected !== catEl.value) {
-        catEl.value = detected;
-        FA.App.onCategoryChange(false);
-        FA.App.toast("Kategori terdeteksi: " + FA.PLAYBOOKS[detected].label, "ok");
+      var decision = FA.adoptCategoryDecision({
+        current: catEl.value,
+        suggested: detected,
+        userTouched: FA.App.state.categoryTouched,
+      });
+      if (!decision.adopt) {
+        if (decision.suggest) FA.App.suggestCategory(detected, "dari nama produk");
+        return;
       }
+      catEl.value = detected;
+      FA.App.onCategoryChange(false);
+      FA.App.toast("Kategori terdeteksi: " + FA.PLAYBOOKS[detected].label, "ok");
     });
 
-    catEl.addEventListener("change", function () { FA.App.onCategoryChange(true); });
+    // Event `change` hanya terpicu oleh interaksi nyata pengguna. Penetapan
+    // lewat kode (`sel.value = ...`) tidak memicunya, sehingga ini cara yang
+    // tepat untuk menandai "pengguna sudah memilih sendiri".
+    catEl.addEventListener("change", function () {
+      FA.App.state.categoryTouched = true;
+      FA.App.clearCategorySuggestion();
+      FA.App.onCategoryChange(true);
+    });
     nameEl.addEventListener("input", FA.App.refreshGenerateState);
 
     var advEls = ["fPain", "fAudience", "fPrice", "fPromo"];
@@ -251,6 +273,20 @@ FA.App = {
 
   /* --------------------------------------------------------- Wizard */
   bindWizard: function () {
+    // Bar saran kategori.
+    var acceptSug = document.getElementById("acceptSuggestionBtn");
+    if (acceptSug) {
+      acceptSug.addEventListener("click", function () {
+        FA.App.acceptSuggestedCategory();
+      });
+    }
+    var dismissSug = document.getElementById("dismissSuggestionBtn");
+    if (dismissSug) {
+      dismissSug.addEventListener("click", function () {
+        FA.App.clearCategorySuggestion();
+      });
+    }
+
     document.getElementById("generateBtn").addEventListener("click", function () {
       FA.App.generate();
     });
@@ -345,15 +381,21 @@ FA.App = {
   applyAnalysisToBrief: function (a, brief) {
     var notes = [];
 
-    // Kategori: hanya diubah bila model cukup yakin.
-    if (a.category && a.confidence >= 0.5) {
+    // Kategori: pakai fungsi keputusan. Isian pengguna SELALU menang.
+    var decision = FA.adoptCategoryDecision({
+      current: document.getElementById("fCategory").value,
+      suggested: a.category,
+      confidence: a.confidence,
+      userTouched: FA.App.state.categoryTouched,
+    });
+    if (decision.adopt) {
       var sel = document.getElementById("fCategory");
-      if (sel && sel.value !== a.category) {
-        sel.value = a.category;
-        FA.App.onCategoryChange(false);
-        brief.category = a.category;
-        notes.push("kategori " + (FA.PLAYBOOKS[a.category] || {}).label);
-      }
+      sel.value = a.category;
+      FA.App.onCategoryChange(false);
+      brief.category = a.category;
+      notes.push("kategori " + (FA.PLAYBOOKS[a.category] || {}).label);
+    } else if (decision.suggest) {
+      FA.App.suggestCategory(a.category, "hasil analisis gambar");
     }
 
     // Nama produk: hanya isi bila pengguna belum mengetik apa pun.
@@ -649,6 +691,9 @@ FA.App = {
     FA.App.state.files = [];
     FA.App.state.project = null;
     FA.App.state.demoMode = false;
+    // Mulai ulang: kategori kembali mengikuti deteksi otomatis.
+    FA.App.state.categoryTouched = false;
+    FA.App.clearCategorySuggestion();
     document.getElementById("thumbs").innerHTML = "";
     document.getElementById("fName").value = "";
     ["fPain", "fAudience", "fPrice", "fPromo"].forEach(function (id) {
@@ -673,19 +718,78 @@ FA.App = {
 
   /* -------------------------------------------------------- DEMO MODE */
   runDemo: function () {
+    // Demo menawarkan contoh, TIDAK menimpa kategori yang sudah dipilih
+    // pengguna. Kalau pengguna sudah memilih sendiri, cukup ditawarkan.
     FA.App.state.demoMode = true;
     document.getElementById("fName").value = "Glow Serum Vitamin C";
-    document.getElementById("fCategory").value = "SKINCARE";
-    FA.App.onCategoryChange(true);
     document.getElementById("fPain").value = "kulit kusam dan berminyak di siang hari";
     document.getElementById("fAudience").value = "wanita 20-30 tahun, pekerja kantoran";
     document.getElementById("fPrice").value = "Rp 89.000";
     document.getElementById("fPromo").value = "diskon 40% hari ini";
     document.getElementById("fPlatform").value = "tiktok";
+
+    var catEl = document.getElementById("fCategory");
+    var decision = FA.adoptCategoryDecision({
+      current: catEl.value,
+      suggested: "SKINCARE",
+      userTouched: FA.App.state.categoryTouched,
+    });
+    if (decision.adopt) {
+      catEl.value = "SKINCARE";
+      FA.App.onCategoryChange(true);
+    } else if (decision.suggest) {
+      FA.App.suggestCategory("SKINCARE", "contoh produk demo");
+      FA.App.toast("Contoh dimuat. Kategori tetap pilihanmu — saran ada di atas.", "ok");
+    } else {
+      FA.App.toast("Contoh dimuat", "ok");
+    }
+
     FA.App.refreshGenerateState();
-    FA.App.toast("Contoh dimuat — klik Buat 6 Prompt Scene", "ok");
     FA.App.setStep(1);
     FA.App.showView("wizard");
+  },
+
+  /* ------------------------------------------------ SARAN KATEGORI */
+  /** Tampilkan bar saran kategori TANPA menimpa pilihan pengguna.
+   *  Hanya pengguna yang boleh menerapkannya. */
+  suggestCategory: function (category, from) {
+    if (!category || !FA.PLAYBOOKS[category]) return;
+    if (FA.App.state.categoryTouched) {
+      FA.App.state.pendingCategory = category;
+      var bar = document.getElementById("categorySuggestionBar");
+      if (!bar) return;
+      document.getElementById("suggestionText").innerHTML =
+        "Saran " + FA.esc(from) + ": kategori <strong>" +
+        FA.esc(FA.PLAYBOOKS[category].label) + "</strong> berbeda dengan pilihanmu.";
+      bar.classList.remove("hidden");
+      return;
+    }
+    // Pengguna belum menyentuh kategori: terapkan langsung (perilaku lama).
+    FA.App.adoptCategory(category);
+  },
+
+  /** Terapkan kategori yang sedang ditawarkan. */
+  acceptSuggestedCategory: function () {
+    var cat = FA.App.state.pendingCategory;
+    FA.App.clearCategorySuggestion();
+    if (!cat) return;
+    FA.App.adoptCategory(cat);
+    FA.App.toast("Kategori diubah ke " + FA.PLAYBOOKS[cat].label, "ok");
+  },
+
+  /** Terapkan kategori secara sungguhan (memandai sebagai pilihan pengguna). */
+  adoptCategory: function (category) {
+    var sel = document.getElementById("fCategory");
+    sel.value = category;
+    FA.App.state.categoryTouched = true;
+    FA.App.onCategoryChange(true);
+  },
+
+  /** Sembunyikan bar saran. */
+  clearCategorySuggestion: function () {
+    FA.App.state.pendingCategory = null;
+    var bar = document.getElementById("categorySuggestionBar");
+    if (bar) bar.classList.add("hidden");
   },
 
   /* -------------------------------------------------------- SETTINGS */

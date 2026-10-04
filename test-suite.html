@@ -624,6 +624,65 @@
       FA.Vision.mapStatus({ suggestedModels: ["a", "b"] }).suggestedModels.length === 2);
   })();
 
+  /* --------------------------------------- 19. Keputusan kategori */
+  group("19. Isian pengguna menang atas saran kategori");
+  (function () {
+    check("FA.adoptCategoryDecision termuat", typeof FA.adoptCategoryDecision === "function");
+
+    // Kasus yang dilaporkan: pengguna sudah memilih FNB, saran SKINCARE.
+    var d1 = FA.adoptCategoryDecision({
+      current: "FNB", suggested: "SKINCARE", confidence: 0.86, userTouched: true,
+    });
+    check("pilihan pengguna TIDAK ditimpa", d1.adopt === false);
+    check("pilihan pengguna tetap ditawarkan", d1.suggest === true);
+
+    // Kategori default (belum disentuh) boleh diperbarui.
+    var d2 = FA.adoptCategoryDecision({
+      current: "SKINCARE", suggested: "FNB", confidence: 0.9, userTouched: false,
+    });
+    check("belum disentuh: saran boleh dipakai", d2.adopt === true && d2.suggest === false);
+
+    // Saran sama dengan yang sekarang: tidak perlu apa-apa.
+    var d3 = FA.adoptCategoryDecision({
+      current: "FNB", suggested: "FNB", confidence: 0.9, userTouched: false,
+    });
+    check("saran sama tidak mengubah apa pun", d3.adopt === false && d3.suggest === false);
+
+    // Keyakinan rendah tidak boleh dipakai.
+    var d4 = FA.adoptCategoryDecision({
+      current: "SKINCARE", suggested: "FNB", confidence: 0.3, userTouched: false,
+    });
+    check("keyakinan rendah ditolak", d4.adopt === false && d4.suggest === false);
+
+    // Kategori tidak dikenal tidak boleh dipakai.
+    var d5 = FA.adoptCategoryDecision({
+      current: "SKINCARE", suggested: "KATEGORI_NGAWUR", confidence: 0.9, userTouched: false,
+    });
+    check("kategori tak dikenal ditolak", d5.adopt === false && d5.suggest === false);
+
+    // Kategori kosong tidak boleh dipakai.
+    var d6 = FA.adoptCategoryDecision({
+      current: "SKINCARE", suggested: "", confidence: 0.9, userTouched: false,
+    });
+    check("kategori kosong ditolak", d6.adopt === false && d6.suggest === false);
+
+    // Tanpa minConfidence eksplisit, default 0.5 dipakai.
+    var d7 = FA.adoptCategoryDecision({
+      current: "SKINCARE", suggested: "FNB", confidence: 0.5, userTouched: false,
+    });
+    check("keyakinan tepat 0.5 masih diterima", d7.adopt === true);
+
+    // Pengguna sudah memilih, tetapi saran sama: tidak perlu bar saran.
+    var d8 = FA.adoptCategoryDecision({
+      current: "FNB", suggested: "FNB", confidence: 0.9, userTouched: true,
+    });
+    check("pilihan sama dengan saran: tidak ada saran", d8.suggest === false);
+
+    // Tanpa argumen sama sekali: tidak boleh crash.
+    var d9 = FA.adoptCategoryDecision({});
+    check("tanpa argumen tidak crash", d9.adopt === false && d9.suggest === false);
+  })();
+
   /* --------------------------------------- Ringkasan */
   var out = document.getElementById("out");
   var html = "";

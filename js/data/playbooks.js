@@ -331,6 +331,57 @@ FA.PLAYBOOKS = {
 /* Urutan tampil di dropdown playbook */
 FA.PLAYBOOK_ORDER = ["SKINCARE", "FASHION", "FNB", "GADGET", "HOME", "HEALTH", "UNIVERSAL"];
 
+/* Keputusan: bolehkah saran kategori otomatis diterapkan?
+ *
+ * Prinsip: pilihan pengguna SELALU menang. Ini disengaja setelah laporan bug
+ * "kategori tiba-tiba berubah ke skincare padahal sudah dipilih Makanan &
+ * Minuman". Saat direproduksi, TIGA jalur terbukti menimpa pilihan pengguna:
+ *   1. deteksi otomatis dari nama produk (event blur),
+ *   2. hasil analisis gambar,
+ *   3. tombol contoh.
+ *
+ * Saat pengguna sudah memilih sendiri, aplikasi TIDAK MENIMPA — hanya
+ * MENAWARKAN. Saran ditampilkan lewat `suggest: true`, dan pengguna yang
+ * memutuskan.
+ *
+ * Contoh nyata penyebab laporan ini: nama produk "Es Krim Vanilla" memuat
+ * kata "krim" yang ada di daftar kata kunci SKINCARE, sehingga es krim
+ * (makanan) salah terdeteksi sebagai perawatan kulit.
+ */
+FA.adoptCategoryDecision = function (opts) {
+  var o = opts || {};
+  var current = o.current || "";
+  var suggested = o.suggested || "";
+  var touched = o.userTouched === true;
+  var min = typeof o.minConfidence === "number" ? o.minConfidence : 0.5;
+  var confidence = typeof o.confidence === "number" ? o.confidence : 1;
+
+  // Pengguna sudah memilih sendiri -> jangan pernah menimpa.
+  if (touched) {
+    if (suggested && FA.PLAYBOOKS[suggested] && suggested !== current) {
+      return {
+        adopt: false,
+        suggest: true,
+        reason: "menawarkan saran tanpa menimpa pilihan pengguna",
+      };
+    }
+    return { adopt: false, suggest: false, reason: "kategori sudah dipilih pengguna" };
+  }
+
+  // Pengguna belum menyentuh kategori -> saran otomatis boleh dipakai,
+  // asal layak.
+  if (!suggested || !FA.PLAYBOOKS[suggested]) {
+    return { adopt: false, suggest: false, reason: "saran kategori tidak dikenal" };
+  }
+  if (confidence < min) {
+    return { adopt: false, suggest: false, reason: "keyakinan model terlalu rendah" };
+  }
+  if (current === suggested) {
+    return { adopt: false, suggest: false, reason: "sama dengan yang sekarang" };
+  }
+  return { adopt: true, suggest: false, reason: "saran otomatis" };
+};
+
 /* Pemilihan playbook otomatis dari teks kategori/nama produk (heuristik).
  * Ini pengganti call vision model saat mode offline. Lihat PRD §5.2 Langkah 2.
  *
