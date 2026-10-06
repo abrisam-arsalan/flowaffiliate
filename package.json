@@ -6,7 +6,8 @@
   "private": true,
   "scripts": {
     "start": "bun run server.ts",
-    "dev": "bun run server.ts"
+    "dev": "bun run server.ts",
+    "test": "bun run test/run-tests.ts"
   },
   "keywords": [
     "google-flow",

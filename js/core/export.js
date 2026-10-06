@@ -9,6 +9,16 @@ FA.buildExportPackage = function (project) {
   var b = project.brief;
   var pb = FA.PLAYBOOKS[project.playbookId];
   var platform = FA.PLATFORMS[b.platform] || FA.PLATFORMS.tiktok;
+
+  /* Mode anchor foto mengubah urutan kerja di Flow: scene produk-hero dibuat
+   * dulu dari foto (Frames to Video), baru scene bertalent. */
+  var anchorOn = FA.usesPhotoAnchor(b);
+  var heroIdx = [];
+  var talentIdx = [];
+  project.scenes.forEach(function (s) {
+    (s.archetype.anchorMode === "frame" ? heroIdx : talentIdx).push(s.index);
+  });
+
   var L = [];
 
   L.push("=== FLOWAFFILIATE — PAKET PROMPT ===");
@@ -22,12 +32,25 @@ FA.buildExportPackage = function (project) {
   L.push("--- CARA PAKAI DI GOOGLE FLOW ---");
   L.push("1. Buka labs.google/fx/tools/flow lalu buat project baru.");
   L.push("2. Set model ke Gemini Omni Flash, aspect ratio " + project.brief.aspect + ".");
-  L.push("3. Pilih mode Ingredients to Video.");
-  L.push("4. Upload semua foto produk" + (b.hasCharacterRef ? " + foto karakter" : "") + " sebagai ingredient.");
-  L.push("5. Copy prompt Scene 1, paste, set durasi " + project.scenes[0].duration + " detik, generate.");
-  L.push("6. Ulangi untuk Scene 2 sampai 6. Blok continuity sudah sama, jadi karakter");
-  L.push("   dan lokasi akan konsisten.");
-  L.push("7. Gabungkan 6 klip (urut), tambahkan musik, lalu upload ke " + platform.label + ".");
+  if (anchorOn) {
+    L.push("3. DUA LANGKAH supaya produk tidak meleset:");
+    L.push("   a. Scene produk-hero (Scene " + heroIdx.join(", ") + "): pilih mode Frames to Video,");
+    L.push("      jadikan foto produk sebagai frame awal, set durasi, generate lebih dulu.");
+    L.push("   b. Scene bertalent (Scene " + talentIdx.join(", ") + "): pilih mode Ingredients to Video,");
+    L.push("      upload semua foto produk" + (b.hasCharacterRef ? " + foto karakter" : "") +
+           " sebagai prop terkunci.");
+    L.push("4. Copy prompt tiap scene, paste sesuai modenya, set durasi, generate.");
+    L.push("5. Ulangi untuk scene sisanya. Blok continuity sudah sama, jadi karakter");
+    L.push("   dan lokasi akan konsisten.");
+    L.push("6. Gabungkan 6 klip (urut), tambahkan musik, lalu upload ke " + platform.label + ".");
+  } else {
+    L.push("3. Pilih mode Ingredients to Video.");
+    L.push("4. Upload semua foto produk" + (b.hasCharacterRef ? " + foto karakter" : "") + " sebagai ingredient.");
+    L.push("5. Copy prompt Scene 1, paste, set durasi " + project.scenes[0].duration + " detik, generate.");
+    L.push("6. Ulangi untuk Scene 2 sampai 6. Blok continuity sudah sama, jadi karakter");
+    L.push("   dan lokasi akan konsisten.");
+    L.push("7. Gabungkan 6 klip (urut), tambahkan musik, lalu upload ke " + platform.label + ".");
+  }
   L.push("");
 
   L.push("=== SETELAN GOOGLE FLOW ===");
@@ -36,6 +59,13 @@ FA.buildExportPackage = function (project) {
   L.push("Gaya visual: " + FA.STYLES[project.styleId].label);
   L.push("Suara      : " + b.voice.label + " (" + b.voice.descriptor + ")");
   L.push("Pacing     : " + FA.PACING[project.pacingId].label);
+  L.push("Angle      : " + (project.hookAngle
+    ? project.hookAngle.label + " (" + project.hookAngle.title + ")"
+    : "-"));
+  L.push("Anchor     : " + (anchorOn
+    ? "foto produk = frame awal scene hero (Scene " + heroIdx.join(", ") +
+      ") + prop terkunci scene talent (Scene " + talentIdx.join(", ") + ")"
+    : "mati — produk dikunci lewat teks (blok PRODUCT FIDELITY)"));
   L.push("Analisis   : " + (
     project.analysisSource === "ai"
       ? "AI vision" + (project.analysis && project.analysis.model
@@ -105,6 +135,7 @@ FA.buildProjectJSON = function (project) {
     createdAt: project.createdAt,
     brief: {
       productName: project.brief.productName,
+      productDescription: project.brief.productDescription || "",
       category: project.brief.category,
       platform: project.brief.platform,
       aspect: project.brief.aspect,
@@ -112,12 +143,16 @@ FA.buildProjectJSON = function (project) {
       promo: project.brief.promo,
       pain: project.brief.pain,
       audience: project.brief.audience,
+      audienceId: project.brief.audienceId || "",
+      photoCount: project.brief.photoCount || 0,
+      photoAnchor: FA.usesPhotoAnchor(project.brief),
       style: project.styleId,
       voice: project.voiceId,
       pacing: project.pacingId,
     },
     continuity: project.continuity,
     enrichmentSource: project.enrichmentSource,
+    hookAngle: project.hookAngle ? project.hookAngle.id : null,
     totalDuration: project.totalDuration,
     scenes: project.scenes.map(function (s) {
       return {

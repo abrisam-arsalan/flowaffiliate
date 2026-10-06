@@ -140,9 +140,15 @@ FA.Vision = {
 
     if (!FA.Vision.available()) return Promise.resolve(null);
 
-    var limit = Math.min(files.length, 3); // 3 gambar sudah lebih dari cukup
-    var jobs = [];
-    for (var i = 0; i < limit; i++) jobs.push(FA.Vision.prepare(files[i]));
+    // Semua foto gambar dikirim, bukan cuma 3: tiap foto bisa menunjukkan
+    // tampak depan, samping, atau label yang membuat deskripsi produk lebih
+    // akurat. Video dilewati — yang bisa dibaca model vision hanyalah gambar.
+    var images = Array.prototype.filter.call(files, function (f) {
+      return /^image\//.test(f.type);
+    });
+    if (!images.length) return Promise.resolve(null);
+
+    var jobs = images.map(function (f) { return FA.Vision.prepare(f); });
 
     return Promise.all(jobs)
       .then(function (prepared) {

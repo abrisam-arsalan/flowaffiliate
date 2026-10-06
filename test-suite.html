@@ -26,6 +26,7 @@
 <script src="js/data/platforms.js"></script>
 <script src="js/data/archetypes.js"></script>
 <script src="js/data/playbooks.js"></script>
+<script src="js/data/audiences.js"></script>
 <script src="js/core/conductor.js"></script>
 <script src="js/core/vision.js"></script>
 <script src="js/core/ai.js"></script>
@@ -104,8 +105,9 @@
     var brief = {
       productName: "Produk " + cb.cat, category: cb.cat, platform: cb.plat, pacing: cb.pace,
       style: FA.PLAYBOOKS[cb.cat].defaultStyle, voice: FA.PLAYBOOKS[cb.cat].defaultVoice,
+      productDescription: "a small glass bottle with a gold cap",
       pain: "masalah pelanggan", audience: "target pasar", price: "Rp 50.000",
-      promo: "diskon", hasCharacterRef: false
+      promo: "diskon", hasCharacterRef: false, photoCount: 3, photoAnchor: true
     };
     var p = FA.generateProject(brief, { seed: 4242 });
 
@@ -137,19 +139,27 @@
   var refBrief = {
     productName: "Glow Serum Vitamin C", category: "SKINCARE", platform: "tiktok",
     pacing: "standar", style: "aesthetic", voice: "sahabat",
+    productDescription: "a small frosted glass bottle with a white cap",
     pain: "kulit kusam dan berminyak di siang hari", audience: "wanita 20-30 tahun",
     price: "Rp 89.000", promo: "diskon 40%", hasCharacterRef: true
   };
   var P = FA.generateProject(refBrief, { seed: 999 });
   window.__P = P;
 
-  var BLOCKS = ["[REFERENCE]", "[CONTINUITY LOCK", "[SHOT]", "[SETTING & LIGHTING]",
-                "[CAMERA]", "[AUDIO]", "[ON-SCREEN TEXT]", "[OUTPUT]"];
+  var BLOCKS = ["[REFERENCE]", "[PRODUCT FIDELITY", "[CONTINUITY LOCK", "[SHOT]",
+                "[SETTING & LIGHTING]", "[CAMERA]", "[AUDIO]", "[ON-SCREEN TEXT]", "[OUTPUT]"];
 
   check("menghasilkan tepat 6 scene", P.scenes.length === 6, P.scenes.length + "");
   check("total durasi 44 detik pada pacing standar", P.totalDuration === 44, P.totalDuration + "");
-  check("setiap scene memuat 8 blok wajib", P.scenes.every(function (s) {
+  check("setiap scene memuat 9 blok wajib", P.scenes.every(function (s) {
     return BLOCKS.every(function (b) { return s.prompt.indexOf(b) !== -1; });
+  }));
+  check("setiap scene memuat deskripsi visual produk", P.scenes.every(function (s) {
+    return s.prompt.indexOf("The product is a small frosted glass bottle") !== -1;
+  }));
+  check("setiap scene memuat blok kesetiaan produk", P.scenes.every(function (s) {
+    return /\[PRODUCT FIDELITY[^\]]*\]/.test(s.prompt) &&
+           /the PHOTO wins/.test(s.prompt);
   }));
   check("setiap scene menyatakan single continuous shot", P.scenes.every(function (s) {
     return /single continuous shot/i.test(s.prompt);
@@ -209,7 +219,7 @@
   var brokenScene = { index: 1, duration: 8, _productName: "X", prompt: "[SHOT]\nNothing useful here." };
   var brokenChecks = FA.validateScene(brokenScene);
   check("validator menolak prompt tanpa blok wajib", brokenChecks.some(function (c) { return !c.pass; }));
-  check("validator memeriksa 9 aspek per scene", brokenChecks.length === 9, brokenChecks.length + "");
+  check("validator memeriksa 10 aspek per scene", brokenChecks.length === 10, brokenChecks.length + "");
 
   var longDialog = {
     index: 1, duration: 4, _productName: "X",
@@ -681,6 +691,345 @@
     // Tanpa argumen sama sekali: tidak boleh crash.
     var d9 = FA.adoptCategoryDecision({});
     check("tanpa argumen tidak crash", d9.adopt === false && d9.suggest === false);
+  })();
+
+  /* --------------------------------------- 20. Kesetiaan produk */
+  group("20. Kesetiaan produk (anti produk ngarang)");
+  (function () {
+    // Deskripsi dari brief harus masuk prompt apa adanya.
+    var fb = JSON.parse(JSON.stringify(refBrief));
+    fb.productDescription = "a red aluminium tube with a black screw cap";
+    var FP = FA.generateProject(fb, { seed: 11 });
+    check("deskripsi dari brief dipakai apa adanya", FP.scenes.every(function (s) {
+      return s.prompt.indexOf("a red aluminium tube with a black screw cap") !== -1;
+    }));
+    check("deskripsi dari brief lolos pemeriksaan V13", FP.scenes.every(function (s) {
+      var v = s.validation.filter(function (c) { return c.id === "V13"; })[0];
+      return !!v && v.pass;
+    }));
+
+    // Deskripsi dari analisis lebih diutamakan daripada ketikan pengguna.
+    var ap = JSON.parse(JSON.stringify(refBrief));
+    ap.analysis = FA.Vision.normalize({
+      category: "SKINCARE",
+      productDescription: "a matte black aluminium spray can",
+    });
+    var AP2 = FA.generateProject(ap, { seed: 11 });
+    check("deskripsi analisis menang atas ketikan pengguna",
+      AP2.continuity.productDescription === "a matte black aluminium spray can",
+      AP2.continuity.productDescription);
+
+    // Cadangan terakhir: disusun dari data kemasan hasil analisis.
+    var pk = JSON.parse(JSON.stringify(refBrief));
+    pk.productDescription = "";
+    pk.analysis = FA.Vision.normalize({
+      category: "SKINCARE",
+      packaging: { type: "dropper bottle", color: "frosted white", material: "glass", finish: "matte" },
+    });
+    var PK = FA.generateProject(pk, { seed: 11 });
+    check("deskripsi disusun dari data kemasan saat sumber lain kosong",
+      PK.continuity.productDescription === "a frosted white glass dropper bottle with a matte finish",
+      PK.continuity.productDescription);
+
+    // Tanpa deskripsi sama sekali: validator menandai, bukan diam-diam lulus.
+    var bare = FA.generateProject({
+      productName: "X", category: "UNIVERSAL", platform: "tiktok", pacing: "standar",
+      style: "cinematic", voice: "sahabat", pain: "", audience: "", price: "", promo: "",
+      hasCharacterRef: false
+    }, { seed: 12 });
+    var v13 = (bare.scenes[0].validation || []).filter(function (c) { return c.id === "V13"; })[0];
+    check("prompt tanpa deskripsi produk ditandai validator",
+      !!v13 && v13.pass === false);
+    check("detail V13 menyebut cara memperbaikinya",
+      !!v13 && v13.detail.indexOf("Deskripsi tampilan produk") !== -1, v13 && v13.detail);
+
+    // Guard label: jangan pernah mengarang tulisan atau merek.
+    check("label terbaca dikunci apa adanya", (function () {
+      var lb = JSON.parse(JSON.stringify(refBrief));
+      lb.analysis = FA.Vision.normalize({ category: "SKINCARE", labelText: "GLOW SERUM" });
+      var L1 = FA.generateProject(lb, { seed: 11 });
+      return L1.scenes[0].prompt.indexOf('EXACTLY as "GLOW SERUM"') !== -1;
+    })());
+    check("label tidak terbaca: model dilarang mengarang tulisan", P.scenes.every(function (s) {
+      return /do NOT invent any brand name/.test(s.prompt);
+    }));
+
+    // Produk dikunci sebagai prop, dan kemasan generik dilarang.
+    check("continuity memuat PRODUCTLOCK di semua scene", P.scenes.every(function (s) {
+      return s.prompt.indexOf("PRODUCTLOCK:") !== -1;
+    }));
+    check("kemasan generik dilarang", P.scenes.every(function (s) {
+      return /Do NOT substitute a generic container/.test(s.prompt);
+    }));
+
+    // Peran multi-foto dinyatakan eksplisit.
+    var mf = JSON.parse(JSON.stringify(refBrief));
+    mf.photoCount = 4;
+    var MF = FA.generateProject(mf, { seed: 11 });
+    check("multi-foto dideklarasikan sebagai satu produk",
+      MF.scenes[0].prompt.indexOf("Treat all 4 photos as one single product") !== -1);
+    check("foto tunggal memakai kalimat tunggal", P.scenes[0].prompt.indexOf(
+      "Use the uploaded product image as the primary product reference") !== -1);
+  })();
+
+  /* --------------------------------------- 21. Caption & audiens */
+  group("21. Caption menyebut target audiens");
+  (function () {
+    var ab = JSON.parse(JSON.stringify(refBrief));
+    ab.audience = "ibu muda";
+    ab.pain = "waktu nggak cukup buat rawat diri";
+    var CAP = FA.generateProject(ab, { seed: 21 });
+    check("audiens masuk ke variabel project", CAP.vars.audience === "ibu muda", CAP.vars.audience);
+    check("hook Pain memuat audiens",
+      CAP.caption.hooks[1].text.indexOf("ibu muda") !== -1, CAP.caption.hooks[1].text);
+    check("caption dengan hook Pain memuat audiens", (function () {
+      FA.selectHook(CAP, 1);
+      return CAP.caption.caption.indexOf("ibu muda") !== -1;
+    })());
+
+    // Body beraudiens adalah salah satu dari tiga varian — pastikan ia
+    // benar-benar terpilih pada beberapa seed, bukan hanya ada di kode.
+    var dipakai = 0;
+    for (var s = 0; s < 12; s++) {
+      var cp = FA.generateProject(JSON.parse(JSON.stringify(ab)), { seed: s });
+      if (cp.caption.body.indexOf("ibu muda") !== -1) dipakai++;
+    }
+    check("varian body beraudiens benar-benar dipilih", dipakai > 0, "dipakai " + dipakai + "/12");
+  })();
+
+  /* --------------------------------------- 22. Mode anchor foto */
+  group("22. Mode anchor foto (frame awal / prop terkunci)");
+  (function () {
+    var nb = JSON.parse(JSON.stringify(refBrief));
+    nb.photoCount = 3;
+    nb.photoAnchor = true;
+    var NB = FA.generateProject(nb, { seed: 31 });
+    var sceneIn = function (p, id) {
+      return p.scenes.filter(function (s) { return s.archetype.id === id; })[0];
+    };
+
+    check("scene produk-hero memakai foto sebagai frame awal",
+      /Anchor mode \(Frames-to-Video\)/.test(sceneIn(NB, "REVEAL").prompt) &&
+      /Anchor mode \(Frames-to-Video\)/.test(sceneIn(NB, "DEMO").prompt) &&
+      /Start from the uploaded product photo as the opening frame/.test(sceneIn(NB, "REVEAL").prompt));
+    check("scene bertalent memakai foto sebagai prop terkunci",
+      ["HOOK", "PROBLEM", "PROOF", "CTA"].every(function (id) {
+        return /prop\/ingredient reference/.test(sceneIn(NB, id).prompt) &&
+               !/opening frame/.test(sceneIn(NB, id).prompt);
+      }));
+    check("semua scene menyebut mode anchor", NB.scenes.every(function (s) {
+      return s.prompt.indexOf("Anchor mode") !== -1;
+    }));
+    check("V14 lolos saat deklarasi anchor konsisten",
+      NB.projectChecks.filter(function (c) { return c.id === "V14"; })[0].pass === true);
+
+    var off = JSON.parse(JSON.stringify(refBrief));
+    off.photoCount = 3;
+    off.photoAnchor = false;
+    var OFF = FA.generateProject(off, { seed: 31 });
+    check("anchor mati: tidak ada janji frame/prop di prompt", OFF.scenes.every(function (s) {
+      return s.prompt.indexOf("Anchor mode") === -1;
+    }));
+    check("anchor mati: V14 tetap lolos", OFF.projectChecks
+      .filter(function (c) { return c.id === "V14"; })[0].pass === true);
+
+    // Checkbox aktif tapi tanpa foto: dianggap mati, jangan menyesatkan model.
+    var noPhoto = JSON.parse(JSON.stringify(refBrief));
+    noPhoto.photoCount = 0;
+    noPhoto.photoAnchor = true;
+    var NP = FA.generateProject(noPhoto, { seed: 31 });
+    check("anchor tanpa foto dianggap mati", NP.scenes.every(function (s) {
+      return s.prompt.indexOf("Anchor mode") === -1;
+    }));
+
+    var flowHtml = FA.renderFlowTab(NB);
+    check("panduan Flow menyebut Frames to Video", flowHtml.indexOf("Frames to Video") !== -1);
+    check("panduan Flow memuat alur dua langkah",
+      flowHtml.indexOf("Langkah 1 — scene produk-hero (Scene 3, 4)") !== -1 &&
+      flowHtml.indexOf("Langkah 2 — scene bertalent (Scene 1, 2, 5, 6)") !== -1);
+
+    var pkg = FA.buildExportPackage(NB);
+    check("paket export memuat alur dua langkah",
+      pkg.indexOf("DUA LANGKAH supaya produk tidak meleset") !== -1 &&
+      pkg.indexOf("Frames to Video") !== -1);
+    check("paket export mencatat status anchor",
+      pkg.indexOf("Anchor     :") !== -1 && pkg.indexOf("frame awal scene hero") !== -1);
+  })();
+
+  /* --------------------------------------- 23. Profil audiens */
+  group("23. Profil audiens (nada, pain, hashtag)");
+  (function () {
+    check("FA.AUDIENCES termuat",
+      !!(FA.AUDIENCES && FA.AUDIENCE_ORDER && FA.matchAudience));
+    check("ada minimal 5 profil + fallback custom",
+      FA.AUDIENCE_ORDER.length >= 5 && !!FA.AUDIENCES.custom);
+    check("semua profil punya label, sapaan, dan nada", FA.AUDIENCE_ORDER.concat(["custom"]).every(function (id) {
+      var a = FA.AUDIENCES[id];
+      return !!a && !!a.label && a.address !== undefined && !!a.pronoun && a.tone !== undefined &&
+        Array.isArray(a.pains) && Array.isArray(a.hashtags);
+    }));
+
+    [
+      ["anak kos", "anak_muda"], ["mahasiswa", "anak_muda"],
+      ["ibu muda", "ibu"], ["ibu rumah tangga", "ibu"], ["orang tua", "ibu"],
+      ["pekerja kantoran", "pekerja"], ["pekerja shift", "pekerja"],
+      ["content creator", "kreator"], ["gamer", "gamer"],
+      ["semua kalangan", "umum"],
+      ["wanita 20-30 tahun", "custom"],
+    ].forEach(function (c) {
+      check('pencocokan "' + c[0] + '" → ' + c[1],
+        FA.matchAudience(c[0]) === c[1], "dapat " + FA.matchAudience(c[0]));
+    });
+    check("teks kosong → umum", FA.matchAudience("") === "umum");
+
+    // Profil dari selektor: nada masuk arahan suara, pain jadi subset,
+    // dan sapaan profil dipakai saat kolom sapaan kosong.
+    var ib = JSON.parse(JSON.stringify(refBrief));
+    ib.audienceId = "ibu";
+    ib.audience = "";
+    ib.pain = "";
+    ib.analysis = null;
+    var IB = FA.generateProject(ib, { seed: 41 });
+    check("nada audiens masuk ke arahan suara di blok AUDIO",
+      IB.scenes[0].prompt.indexOf(FA.AUDIENCES.ibu.directive) !== -1);
+    check("sapaan profil dipakai saat kolom kosong",
+      IB.vars.audience === "ibu muda", IB.vars.audience);
+    check("pronoun tersedia untuk kandidat dialog",
+      IB.vars.pronoun === "kamu", IB.vars.pronoun);
+    check("pain diambil dari subset audiens",
+      IB.vars.pain !== "" && FA.AUDIENCES.ibu.pains.indexOf(IB.vars.pain) !== -1, IB.vars.pain);
+    check("project mencatat audienceId", IB.audienceId === "ibu", IB.audienceId);
+
+    // Ketikan pengguna SELALU menang sebagai sapaan.
+    var cu = JSON.parse(JSON.stringify(refBrief));
+    cu.audienceId = "custom";
+    cu.audience = "wanita karier yang sering lembur";
+    var CU = FA.generateProject(cu, { seed: 41 });
+    check("sapaan custom dipertahankan apa adanya",
+      CU.vars.audience === "wanita karier yang sering lembur", CU.vars.audience);
+    check("hook Pain caption memuat sapaan custom",
+      CU.caption.hooks[1].text.indexOf("wanita karier yang sering lembur") !== -1);
+
+    // Selektor eksplisit menang atas tebakan kata kunci.
+    var gm = JSON.parse(JSON.stringify(refBrief));
+    gm.audienceId = "gamer";
+    gm.audience = "";
+    var GM = FA.generateProject(gm, { seed: 41 });
+    check("sapaan profil gamer dipakai",
+      GM.vars.audience === "gamer dan pecinta gadget", GM.vars.audience);
+    check("nada gamer dipakai meski sapaan generik",
+      GM.scenes[0].prompt.indexOf(FA.AUDIENCES.gamer.directive) !== -1);
+
+    // Hashtag beraudiens menyusul broad/niche/lokal.
+    check("caption memuat hashtag audiens", IB.caption.hashtags.some(function (t) {
+      return FA.AUDIENCES.ibu.hashtags.indexOf(t) !== -1;
+    }), IB.caption.hashtags.join(" "));
+
+    // Placeholder audiens & pronoun dipakai lebih luas, bukan cuma PROOF.
+    var archWithAudience = FA.ARCHETYPE_ORDER.filter(function (id) {
+      return FA.ARCHETYPES[id].dialogueCandidates.some(function (d) {
+        return d.indexOf("{{audience}}") !== -1 || d.indexOf("{{pronoun}}") !== -1;
+      });
+    });
+    check("placeholder audiens/pronoun dipakai di ≥3 arketipe",
+      archWithAudience.length >= 3, archWithAudience.join(", "));
+    check("tidak ada placeholder tak dikenal di kandidat dialog",
+      FA.ARCHETYPE_ORDER.every(function (id) {
+        return FA.ARCHETYPES[id].dialogueCandidates.concat(
+          FA.ARCHETYPES[id].onscreenCandidates
+        ).every(function (d) {
+          return !/\{\{(?!product\b|category\b|pain\b|benefit\b|usage\b|time\b|audience\b|promo\b|price\b|pronoun\b)/.test(d);
+        });
+      }));
+  })();
+
+  /* --------------------------------------- 24. Anti-monoton */
+  group("24. Anti-monoton (bank treatment, hook angle, varian arc)");
+  (function () {
+    // Bank treatment per arketipe.
+    check("setiap arketipe punya bank treatment", FA.ARCHETYPE_ORDER.every(function (id) {
+      var a = FA.ARCHETYPES[id];
+      return Array.isArray(a.shots) && a.shots.length >= 3 &&
+        Array.isArray(a.settings) && a.settings.length >= 3 &&
+        Array.isArray(a.cameras) && a.cameras.length >= 3 &&
+        Array.isArray(a.sfxs) && a.sfxs.length >= 2 &&
+        Array.isArray(a.musics) && a.musics.length >= 2;
+    }));
+    check("semua varian shot valid (kapital, subjek benar, tanpa pain)", FA.ARCHETYPE_ORDER.every(function (id) {
+      var a = FA.ARCHETYPES[id];
+      var all = a.shots.concat((a.arcVariants || []).map(function (v) { return v.shot || ""; }))
+        .filter(Boolean);
+      return all.every(function (s) {
+        return /^[A-Z]/.test(s) && /The talent|the talent's hand/.test(s) && s.indexOf("{{pain}}") === -1;
+      });
+    }));
+
+    // Treatment bervariasi nyata antar generate (produk sama, seed beda).
+    var revealShots = {};
+    var angleSeen = {};
+    for (var i = 0; i < 12; i++) {
+      var pp = FA.generateProject(JSON.parse(JSON.stringify(refBrief)), { seed: 100 + i });
+      var rv = pp.scenes.filter(function (s) { return s.archetype.id === "REVEAL"; })[0];
+      revealShots[rv.enriched.shot] = 1;
+      angleSeen[pp.hookAngle.id] = 1;
+    }
+    check("treatment scene hero bervariasi antar generate",
+      Object.keys(revealShots).length >= 2, Object.keys(revealShots).length + " variasi shot");
+
+    // Hook angle.
+    check("FA.HOOK_ANGLES termuat",
+      !!(FA.HOOK_ANGLES && FA.HOOK_ANGLE_ORDER && FA.HOOK_ANGLE_ORDER.length >= 5));
+    check("hook angle bervariasi antar generate",
+      Object.keys(angleSeen).length >= 3, Object.keys(angleSeen).join(", "));
+    var forced = FA.generateProject(JSON.parse(JSON.stringify(refBrief)), {
+      seed: 9, hookAngle: "humor",
+    });
+    check("hook angle bisa dipaksa lewat options", forced.hookAngle.id === "humor");
+    check("story angle dikunci identik di continuity 6 scene", forced.scenes.every(function (s) {
+      return s.prompt.indexOf("Story angle: Humour") !== -1;
+    }));
+    check("kandidat dialog hook angle ikut dipakai", (function () {
+      var cands = FA.HOOK_ANGLES.humor.hookCandidates;
+      for (var s = 0; s < 24; s++) {
+        var ph = FA.generateProject(JSON.parse(JSON.stringify(refBrief)), {
+          seed: s, hookAngle: "humor",
+        });
+        var d = ph.scenes[0].dialogue;
+        var hit = cands.some(function (c) {
+          return FA.stripUnfilled(FA.fill(c, ph.vars)) === d ||
+            FA.stripUnfilled(FA.fill(c, Object.assign({}, ph.vars, { pain: FA.PAIN_REFERENCE }))) === d;
+        });
+        if (hit) return true;
+      }
+      return false;
+    })());
+
+    // Varian arc slot DEMO.
+    check("slot DEMO punya minimal 3 varian arc",
+      Array.isArray(FA.ARCHETYPES.DEMO.arcVariants) && FA.ARCHETYPES.DEMO.arcVariants.length >= 3);
+    check("semua command varian arc ada di bank command", FA.ARCHETYPES.DEMO.arcVariants.every(function (v) {
+      return v.id && v.label && v.commands.length > 0 &&
+        v.commands.every(function (c) { return !!FA.lookupCommand(c); });
+    }));
+    var demoCmds = {};
+    var demoShots = {};
+    for (var k = 0; k < 12; k++) {
+      var pd = FA.generateProject(JSON.parse(JSON.stringify(refBrief)), { seed: 300 + k });
+      var dm = pd.scenes.filter(function (s) { return s.archetype.id === "DEMO"; })[0];
+      demoCmds[dm.commands.join(" ")] = 1;
+      demoShots[dm.enriched.shot] = 1;
+    }
+    check("varian arc DEMO bervariasi antar generate",
+      Object.keys(demoCmds).length >= 2, Object.keys(demoCmds).length + " varian");
+    check("treatment DEMO ikut bervariasi",
+      Object.keys(demoShots).length >= 2, Object.keys(demoShots).length + " variasi shot");
+
+    // Determinisme tetap terjaga meski banyak yang diacak.
+    var d1 = FA.generateProject(JSON.parse(JSON.stringify(refBrief)), { seed: 4242 });
+    var d2 = FA.generateProject(JSON.parse(JSON.stringify(refBrief)), { seed: 4242 });
+    check("seed sama tetap menghasilkan paket identik", d1.scenes.every(function (s, idx) {
+      return s.prompt === d2.scenes[idx].prompt;
+    }) && d1.hookAngle.id === d2.hookAngle.id);
   })();
 
   /* --------------------------------------- Ringkasan */

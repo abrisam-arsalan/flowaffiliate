@@ -59,7 +59,7 @@ Field yang wajib ada:
   "productName": "nama produk jika terbaca dari label/packaging, jika tidak terbaca isi tebakan singkat",
   "category": "pilih TEPAT SATU: SKINCARE | FASHION | FNB | GADGET | HOME | HEALTH | UNIVERSAL",
   "confidence": 0.0,
-  "productDescription": "deskripsi visual produk dalam BAHASA INGGRIS, 1-2 kalimat, sebutkan bentuk kemasan, warna, material, dan finishing. Ini dipakai model video untuk mengenali produk, jadi harus konkret.",
+  "productDescription": "deskripsi visual produk dalam BAHASA INGGRIS, 1-2 kalimat, WAJIB diisi: sebutkan bentuk kemasan (botol/jar/tube/pouch/kaleng), jenis tutup, warna, material, dan finishing. Ini dipakai model video untuk mengenali produk, jadi harus konkret dan hanya boleh menyebut hal yang benar-benar terlihat pada foto.",
   "labelText": "tulisan yang benar-benar terlihat pada kemasan, apa adanya. Kosongkan jika tidak ada.",
   "packaging": { "type": "", "color": "", "material": "", "finish": "" },
   "dominantColors": ["#RRGGBB"],
@@ -76,6 +76,8 @@ Field yang wajib ada:
 Aturan:
 - Jangan mengarang klaim kesehatan. Jangan menyebut harga. Jangan menyebut angka statistik.
 - Kalau tulisan pada kemasan tidak terbaca, kosongkan labelText. JANGAN mengarang merek.
+- productDescription jangan pernah dikosongkan. Deskripsikan hanya yang terlihat pada foto — jangan mengarang bentuk kemasan yang tidak ada.
+- Kalau menerima lebih dari satu foto, anggap semuanya SATU produk yang sama dari sudut berbeda, dan gabungkan yang terlihat dari semuanya.
 - productName dan productDescription pakai BAHASA INGGRIS kecuali nama merek aslinya.`;
 
 /** Instruksi untuk menulis ulang narasi. */

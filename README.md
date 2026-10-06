@@ -54,13 +54,20 @@ secara otomatis.
 Buka `flowaffiliate/test-suite.html` di browser. Hasil muncul di halaman,
 dan ringkasannya tersedia di `window.__TEST_RESULT`.
 
+Atau jalankan dari terminal — skrip tes yang sama diekstrak dari
+`test-suite.html`, jadi keduanya tidak mungkin berbeda:
+
+```bash
+bun run test
+```
+
 ---
 
 ## Cara pakai
 
 | Langkah | Yang dilakukan |
 |---|---|
-| **1. Upload** | Tarik foto produk (maks 5 file, 10 MB/file). Isi nama produk & kategori. |
+| **1. Upload** | Tarik foto produk (maks 5 file, 10 MB/file). Isi nama produk, deskripsi tampilan produk (bentuk, warna, material), & kategori. |
 | **2. Buat** | Klik **Buat 6 Prompt Scene**. Kurang dari sedetik. |
 | **3. Ambil** | Copy prompt per scene, atau **Copy Semua 6 Prompt** sekaligus. |
 
@@ -78,10 +85,10 @@ index.html ─── js/ui/app.js ────────── state, wizard, 
                     │
                     ├─ js/core/conductor.js ── MESIN INTI (deterministik)
                     │   1. Continuity Resolver  -> 1 objek continuity utk 6 scene
-                    │   2. Scene Router         -> arketipe + command + durasi
+                    │   2. Scene Router         -> arketipe + varian arc + durasi
                     │   3. Enrichment           -> dialog & teks layar
-                    │   4. Prompt Assembler     -> rakit 7 blok wajib
-                    │   5. Validator            -> 12 pemeriksaan kualitas
+                    │   4. Prompt Assembler     -> rakit 9 blok wajib
+                    │   5. Validator            -> 14 pemeriksaan kualitas
                     │
                     ├─ js/core/ai.js ───────── OPSIONAL: perhalus narasi via Gemini
                     ├─ js/core/export.js ───── paket .txt / .json / SRT
@@ -91,6 +98,7 @@ Basis data prompt:
   js/data/commands.js ──── 69 command Google Flow
   js/data/archetypes.js ── 6 arketipe scene + kandidat dialog Indonesia
   js/data/playbooks.js ─── 7 kategori produk (continuity, pain, benefit, hashtag)
+  js/data/audiences.js ─── 6 profil audiens + custom (nada, pain, hashtag)
   js/data/platforms.js ─── platform, voice persona, gaya visual, pacing
 ```
 
@@ -110,6 +118,39 @@ tanda kutip, supaya pengucapan dan render teks akurat.
 Ini menjawab pain point terbesar: wajah dan karakter yang berubah-ubah antar
 scene. Satu objek continuity dibuat sekali, lalu dipakai kata-per-kata sama di
 keenam prompt.
+
+**Produk dikunci, bukan dibiarkan dikarang.**
+Blok `[PRODUCT FIDELITY]` muncul di setiap prompt dengan larangan eksplisit
+mengganti kemasan generik, mengubah desain, atau "mempercantik" produk — dan
+kalau foto bertentangan dengan teks, **foto yang menang**. Produk juga diperlakukan
+sebagai prop terkunci (`PRODUCTLOCK`), analog FaceLock untuk karakter. Saat tulisan
+label tidak terbaca, model dilarang tegas mengarang merek atau teks apa pun.
+
+**Deskripsi tampilan produk tidak boleh kosong.**
+Kolom *Deskripsi tampilan produk* (bentuk, warna, material, tutup) adalah pertahanan
+utama dari produk "ngarang" — bisa diisi sendiri, oleh analisis AI, atau disusun dari
+data kemasan hasil analisis. Validator menandainya lewat pemeriksaan V13.
+
+**Foto jadi anchor, bukan cuma deskripsi.**
+Opsi *Kunci produk persis dari foto* (default aktif) membuat video produk-hero
+(`REVEAL`, `DEMO`) **dimulai dari fotonya** (Frames to Video) — produk tidak bisa
+meleset karena memang belum digambar ulang. Scene bertalent memakai foto sebagai
+prop terkunci (Ingredients to Video). Panduan Flow menyesuaikan dengan alur dua
+langkah: scene hero dulu, baru scene bertalent. Lihat PRD §6.5.
+
+**Bicara ke siapa menentukan cara bicara.**
+Profil audiens (`FA.AUDIENCES`) menyuntikkan nada bicara ke blok `[AUDIO]`,
+memilih subset masalah yang relevan untuk audiens itu, dan menambah hashtag
+komunitas di caption. Sapaan yang kamu ketik **selalu dipakai apa adanya** —
+profilnya hanya disimpulkan untuk gaya bahasanya.
+
+**Variasi datang dari bank, bukan dari keberuntungan.**
+Treatment tiap scene (shot, setting, kamera, sfx, musik) diambil dari **bank
+varian** — tiap generate memilih kombinasi baru, jadi dua produk dalam kategori
+sama tidak lagi terlihat kembar. Satu **hook angle** (7 pilihan: penasaran,
+relate, sebelum–sesudah, bantah anggapan, unboxing, ikut kata orang, humor)
+dikunci untuk 6 scene, dan isi slot DEMO bisa berubah arc: cara pakai,
+perbandingan, atau unboxing. Seed tetap membuat hasil bisa direproduksi.
 
 **Batas kata dihitung, bukan dikira-kira.**
 Ucapan bahasa Indonesia tempo natural ≈ 2,5 kata/detik. Untuk klip 8 detik,
@@ -233,7 +274,7 @@ di tab Pengaturan bila kamu menginginkan narasi yang lebih bervariasi.
 | — | ✅ **profil API tersimpan, bisa lebih dari satu, ganti tanpa restart** |
 | F-03 Brief Form | ✅ dengan kolom opsional yang bisa dibuka |
 | F-04 Playbook Selector | ✅ 7 playbook, bisa diganti manual |
-| F-05 Prompt Generator 6 Scene | ✅ 7 blok wajib per scene |
+| F-05 Prompt Generator 6 Scene | ✅ 9 blok wajib per scene |
 | F-06 Narasi Indonesia | ✅ per scene, sesuai word budget |
 | F-07 On-Screen Text | ✅ maks 5 kata, dengan timing |
 | F-08 Continuity Lock Engine | ✅ identik kata-per-kata di 6 prompt |
@@ -244,8 +285,12 @@ di tab Pengaturan bila kamu menginginkan narasi yang lebih bervariasi.
 | F-13 Regenerate Scene | ✅ per scene, tanpa mengubah lainnya |
 | F-14 Library | ✅ localStorage, buka/hapus |
 | F-15 Voice Persona Picker | ✅ 6 persona |
+| F-16 Product Anchor Mode | ✅ foto = frame awal scene hero + prop terkunci scene talent, panduan dua langkah |
+| F-17 Product Fidelity Lock | ✅ blok `[PRODUCT FIDELITY]`, `PRODUCTLOCK`, deskripsi wajib, guard label kosong |
+| F-18 Audience Profile | ✅ 6 profil + custom, nada/pain/hashtag ikut audiens, sapaan pengguna selalu menang |
+| F-19 Anti-Monoton Engine | ✅ bank treatment per arketipe, 7 hook angle per project, varian arc slot DEMO |
 
-**Fitur tambahan di luar PRD:** validator kualitas yang terlihat di UI (12
+**Fitur tambahan di luar PRD:** validator kualitas yang terlihat di UI (14
 pemeriksaan), SRT export untuk subtitle, halaman Panduan, penyaring klaim
 kesehatan absolut, **proxy AI dengan allowlist model**, dan **mode uji**
 (`AI_MOCK`) untuk mencoba alur tanpa memakai kuota.
@@ -308,15 +353,20 @@ Halaman /demo dan /test tersedia di bawah URL yang sama.
 
 ## Riwayat pengujian
 
-Test suite mencakup **169 pemeriksaan**, termasuk seluruh **84 kombinasi**
+Test suite mencakup **249 pemeriksaan**, termasuk seluruh **84 kombinasi**
 (7 playbook × 3 pacing × 4 platform). Semua lolos.
 
-Yang diverifikasi: struktur 7 blok, aturan single-shot, batas kata dialog &
+Yang diverifikasi: struktur 9 blok, aturan single-shot, batas kata dialog &
 teks layar, konsistensi blok continuity, tidak ada placeholder bocor, durasi
 valid (4/6/8/10s), determinisme seed, round-trip library, deteksi kategori,
 pemilihan hook, normalisasi keluaran model yang berantakan, pengaruh analisis
-gambar terhadap isi prompt, pemisahan sumber konfigurasi dari mode uji, dan
-penyaring klaim absolut.
+gambar terhadap isi prompt, kesetiaan produk (deskripsi wajib ada, guard label
+kosong, larangan kemasan generik, deklarasi multi-foto), mode anchor foto
+(frame awal untuk scene hero, prop terkunci untuk scene talent), profil audiens
+(nada di blok AUDIO, subset pain, hashtag komunitas, sapaan custom menang),
+anti-monoton (bank treatment bervariasi antar generate, hook angle terkunci,
+varian arc slot DEMO, determinisme seed tetap), pemakaian audiens di caption,
+pemisahan sumber konfigurasi dari mode uji, dan penyaring klaim absolut.
 
 Alur profil API juga diuji lewat HTTP dan lewat UI sungguhan: menyimpan dua
 profil, berpindah profil tanpa menjalankan ulang server, fallback ke `.env`
@@ -349,5 +399,9 @@ menghasilkan 6 prompt yang lolos seluruh validasi.
    mode uji kini terpisah dari sumber konfigurasi. Bug yang sama muncul di
    **dua** endpoint (`/api/status` dan `/api/profiles`) dan hanya ketahuan
    karena UI-nya diuji, bukan hanya API-nya.
+8. Variabel `audience` di `buildCaption` dideklarasikan tapi **tidak pernah
+   dipakai** — caption tidak pernah bicara ke target pembeli, padahal data
+   audiensnya sudah ada. Kini audiens muncul nyata di hook Pain dan salah satu
+   varian body.
 
 Bug 4, 5, dan 7 hanya ketahuan karena diuji, bukan karena membaca ulang kode.

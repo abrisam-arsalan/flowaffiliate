@@ -148,13 +148,43 @@ FA.renderFlowTab = function (project) {
   var b = project.brief;
   var platform = FA.PLATFORMS[b.platform] || FA.PLATFORMS.tiktok;
 
+  /* Mode anchor foto mengubah cara pakai di Flow: scene produk-hero dibuat
+   * lebih dulu dari foto (Frames to Video), baru scene bertalent. */
+  var anchorOn = FA.usesPhotoAnchor(b);
+  var heroIdx = [];
+  var talentIdx = [];
+  project.scenes.forEach(function (s) {
+    (s.archetype.anchorMode === "frame" ? heroIdx : talentIdx).push(s.index);
+  });
+
+  var modeStat = anchorOn ? "Frames + Ingredients" : "Ingredients";
+
+  var stepUpload = anchorOn
+    ? "<li><strong>Langkah 1 — scene produk-hero (Scene " + heroIdx.join(", ") + ")</strong>: " +
+      "pilih mode <strong>Frames to Video</strong>, jadikan foto produk sebagai " +
+      "<em>frame awal</em>, set durasi lalu generate. Videonya dimulai dari fotonya, " +
+      "jadi produk dijamin persis.</li>" +
+      "<li><strong>Langkah 2 — scene bertalent (Scene " + talentIdx.join(", ") + ")</strong>: " +
+      "pindah ke mode <strong>Ingredients to Video</strong>, upload semua foto produk " +
+      "sebagai prop terkunci" + (b.hasCharacterRef ? " + foto karakter untuk wajah" : "") +
+      ". Kalau produknya masih meleset, perbaiki lewat obrolan di Flow sambil merujuk " +
+      "klip hero tadi.</li>"
+    : "<li>Pilih mode <strong>Ingredients to Video</strong>, upload semua foto produk" +
+      (b.hasCharacterRef ? " + foto karakter" : "") + ".</li>";
+
+  var stepCopy = anchorOn
+    ? "<li>Copy prompt tiap scene, paste, set durasinya. Disarankan kerjakan scene hero " +
+      "lebih dulu supaya patokan produknya kebentuk sebelum scene bertalent.</li>"
+    : "<li>Copy prompt <strong>Scene 1</strong>, paste, set durasi <strong>" +
+      project.scenes[0].duration + " detik</strong>, generate.</li>";
+
   return (
     '<div class="card">' +
       '<h2 class="card-title">Setelan yang harus kamu pilih di Google Flow</h2>' +
       '<div class="stat-grid">' +
         '<div class="stat"><div class="stat-num" style="font-size:.95rem">Omni Flash</div><div class="stat-lbl">Model</div></div>' +
         '<div class="stat"><div class="stat-num" style="font-size:.95rem">' + FA.esc(b.aspect) + '</div><div class="stat-lbl">Aspect ratio</div></div>' +
-        '<div class="stat"><div class="stat-num" style="font-size:.95rem">Ingredients</div><div class="stat-lbl">Mode</div></div>' +
+        '<div class="stat"><div class="stat-num" style="font-size:.95rem">' + FA.esc(modeStat) + '</div><div class="stat-lbl">Mode</div></div>' +
         '<div class="stat"><div class="stat-num">' + project.totalDuration + '</div><div class="stat-lbl">Total detik</div></div>' +
         '<div class="stat"><div class="stat-num">6</div><div class="stat-lbl">Klip</div></div>' +
       "</div>" +
@@ -165,10 +195,9 @@ FA.renderFlowTab = function (project) {
       '<ol class="guide-list">' +
         "<li>Buka <code>labs.google/fx/tools/flow</code> dan buat project baru.</li>" +
         "<li>Set model <strong>Gemini Omni Flash</strong>, aspect ratio <strong>" + FA.esc(b.aspect) + "</strong>.</li>" +
-        "<li>Pilih mode <strong>Ingredients to Video</strong>, upload semua foto produk" +
-          (b.hasCharacterRef ? " + foto karakter" : "") + ".</li>" +
-        "<li>Copy prompt <strong>Scene 1</strong>, paste, set durasi <strong>" + project.scenes[0].duration + " detik</strong>, generate.</li>" +
-        "<li>Ulangi untuk Scene 2 sampai 6. Blok continuity sudah identik sehingga karakter konsisten.</li>" +
+        stepUpload +
+        stepCopy +
+        "<li>Ulangi untuk scene sisanya. Blok continuity sudah identik sehingga karakter konsisten.</li>" +
         "<li>Gabungkan 6 klip, tambahkan musik, lalu upload ke <strong>" + FA.esc(platform.label) + "</strong>.</li>" +
         "<li>Pakai caption dan hashtag dari tab <strong>Caption &amp; Hashtag</strong>.</li>" +
       "</ol>" +

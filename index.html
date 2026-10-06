@@ -78,6 +78,18 @@
           </div>
 
           <div class="field">
+            <label for="fProductDesc">Deskripsi tampilan produk <span class="req">*</span></label>
+            <textarea id="fProductDesc" rows="2"
+              placeholder="cth: a frosted glass dropper bottle with a brushed gold cap"
+              autocomplete="off"></textarea>
+            <p class="hint">
+              Bentuk kemasan, warna, material, tutup — biar model video tidak mengarang
+              bentuk produk. Bahasa Inggris lebih dipatuhi model. Diisi otomatis oleh
+              analisis AI bila aktif.
+            </p>
+          </div>
+
+          <div class="field">
             <label for="fCategory">Kategori produk <span class="req">*</span></label>
             <select id="fCategory"></select>
             <p class="hint" id="categoryHint">Menentukan playbook, gaya visual, dan suara default.</p>
@@ -123,7 +135,13 @@
 
             <div class="field">
               <label for="fAudience">Target pembeli</label>
-              <input id="fAudience" type="text" placeholder="cth: wanita 20-30 tahun, pekerja kantoran" autocomplete="off" />
+              <select id="fAudience"></select>
+              <input id="fAudienceCustom" class="hidden" type="text"
+                     placeholder="cth: wanita 20-30 tahun, pekerja kantoran" autocomplete="off" />
+              <p class="hint">
+                Menentukan nada bicara, pilihan masalah, dan hashtag caption.
+                Pilih <strong>Custom</strong> untuk mengetik sendiri.
+              </p>
             </div>
 
             <div class="field-row">
@@ -136,6 +154,16 @@
                 <input id="fPromo" type="text" placeholder="cth: diskon 40% hari ini" autocomplete="off" />
               </div>
             </div>
+
+            <label class="checkline">
+              <input type="checkbox" id="fPhotoAnchor" checked />
+              <span>
+                Kunci produk persis dari foto (pakai foto sebagai frame awal).
+                Scene produk dibuat dari fotonya langsung, jadi produk tidak
+                bisa meleset. <strong>Default aktif</strong> — panduan Flow akan
+                menyesuaikan mode yang dipilih per scene.
+              </span>
+            </label>
 
             <label class="checkline">
               <input type="checkbox" id="fCharRef" />
@@ -231,6 +259,7 @@
       <h2 class="card-title">Tips supaya hasilnya maksimal</h2>
       <ul class="tip-list">
         <li><strong>Kalau wajah masih berubah,</strong> upload foto karakter yang jelas di Flow sebagai ingredient. Itu cara paling efektif untuk mengunci wajah.</li>
+        <li><strong>Kalau produk tidak mirip aslinya,</strong> pastikan opsi <em>Kunci produk persis dari foto</em> aktif saat generate. Scene produk akan dibuat dari fotonya langsung (Frames to Video), jadi produknya tidak bisa meleset. Detailnya ada di tab <em>Cara Pakai di Flow</em> pada hasil generate.</li>
         <li><strong>Kalau dialog terpotong,</strong> pendekkan narasi. Model menolak bicara kalau kalimatnya tidak muat dalam durasi klip.</li>
         <li><strong>Mulai dari 360p</strong> untuk draft, lalu upscale ke 720p kalau sudah cocok. Biaya poin jadi jauh lebih hemat.</li>
         <li><strong>Perbaiki dengan obrolan,</strong> bukan generate ulang. Di Flow kamu bisa bilang "cahayanya lebih hangat" atau "perlambat sedikit".</li>
@@ -395,6 +424,7 @@
 <script src="js/data/platforms.js"></script>
 <script src="js/data/archetypes.js"></script>
 <script src="js/data/playbooks.js"></script>
+<script src="js/data/audiences.js"></script>
 <script src="js/core/conductor.js"></script>
 <script src="js/core/vision.js"></script>
 <script src="js/core/ai.js"></script>

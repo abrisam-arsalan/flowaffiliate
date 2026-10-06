@@ -78,6 +78,14 @@ FA.App = {
       return '<option value="' + id + '">' + FA.esc(v.label) + " (" +
         (v.gender === "female" ? "wanita" : "pria") + ")</option>";
     }).join("");
+
+    var aud = document.getElementById("fAudience");
+    aud.innerHTML = '<option value="">Otomatis (ikuti analisis / playbook)</option>' +
+      FA.AUDIENCE_ORDER.map(function (id) {
+        var a = FA.AUDIENCES[id];
+        return '<option value="' + id + '">' + FA.esc(a.label) + "</option>";
+      }).join("") +
+      '<option value="custom">Custom — ketik sendiri</option>';
   },
 
   /* ------------------------------------------------------------- Nav */
@@ -232,11 +240,36 @@ FA.App = {
       FA.App.onCategoryChange(true);
     });
     nameEl.addEventListener("input", FA.App.refreshGenerateState);
+    document.getElementById("fProductDesc").addEventListener("input", FA.App.refreshGenerateState);
 
-    var advEls = ["fPain", "fAudience", "fPrice", "fPromo"];
+    // Selektor audiens: pilihan "custom" membuka kolom ketik sendiri.
+    var audSel = document.getElementById("fAudience");
+    audSel.addEventListener("change", function () {
+      document.getElementById("fAudienceCustom").classList.toggle("hidden", audSel.value !== "custom");
+      FA.App.refreshGenerateState();
+    });
+
+    var advEls = ["fPain", "fAudienceCustom", "fPrice", "fPromo"];
     advEls.forEach(function (id) {
       document.getElementById(id).addEventListener("input", FA.App.refreshGenerateState);
     });
+  },
+
+  /* Sapaan audiens untuk brief: pilihan profil memakai sapaan profilnya,
+   * "custom" memakai ketikan pengguna, "otomatis" menyerahkan ke
+   * analisis / playbook. */
+  currentAudience: function () {
+    var sel = document.getElementById("fAudience").value;
+    if (sel === "custom") {
+      return {
+        audienceId: "custom",
+        audience: document.getElementById("fAudienceCustom").value.trim(),
+      };
+    }
+    if (sel && FA.AUDIENCES[sel]) {
+      return { audienceId: sel, audience: FA.AUDIENCES[sel].address };
+    }
+    return { audienceId: "", audience: "" };
   },
 
   /* Saat kategori berubah, sesuaikan gaya & suara default playbook. */
@@ -260,14 +293,21 @@ FA.App = {
 
   refreshGenerateState: function () {
     var name = document.getElementById("fName").value.trim();
+    var desc = document.getElementById("fProductDesc").value.trim();
     var hasFile = FA.App.state.files.length > 0 || FA.App.state.demoMode;
-    var ok = name.length > 0 && hasFile;
+    // Deskripsi produk bisa diisi sendiri, atau oleh analisis AI bila ada foto
+    // dan proxy-nya tersedia. Selain dua itu, generate ditolak — karena prompt
+    // tanpa deskripsi produk hampir pasti menghasilkan produk yang dikarang.
+    var aiWillFill = FA.App.state.files.length > 0 && FA.Vision.available();
+    var ok = name.length > 0 && hasFile && (desc.length > 0 || aiWillFill);
     document.getElementById("generateBtn").disabled = !ok || FA.App.state.busy;
 
     var hint = document.getElementById("genHint");
     if (!name && !hasFile) hint.textContent = "Isi nama produk dan upload minimal 1 gambar.";
     else if (!name) hint.textContent = "Nama produk masih kosong.";
     else if (!hasFile) hint.textContent = "Upload minimal 1 gambar produk.";
+    else if (!desc && !aiWillFill) hint.textContent = "Isi deskripsi tampilan produk (bentuk, warna, material).";
+    else if (!desc) hint.textContent = "Siap. Deskripsi produk akan diisi dari analisis foto.";
     else hint.textContent = "Siap. Prompt akan dibuat untuk " + name + ".";
   },
 
@@ -309,22 +349,44 @@ FA.App = {
   generate: function () {
     if (FA.App.state.busy) return;
 
+    // Jumlah foto dipakai untuk mendeklarasikan peran tiap referensi dan
+    // sebagai syarat mode anchor — tanpa foto, "frame awal" tidak ada isinya.
+    var photoCount = FA.App.state.files.filter(function (f) {
+      return /^image\//.test(f.type);
+    }).length;
+    var aud = FA.App.currentAudience();
+
     var brief = {
       productName: document.getElementById("fName").value.trim(),
+      productDescription: document.getElementById("fProductDesc").value.trim(),
       category: document.getElementById("fCategory").value,
       platform: document.getElementById("fPlatform").value,
       pacing: document.getElementById("fPacing").value,
       style: document.getElementById("fStyle").value,
       voice: document.getElementById("fVoice").value,
       pain: document.getElementById("fPain").value.trim(),
-      audience: document.getElementById("fAudience").value.trim(),
+      audienceId: aud.audienceId,
+      audience: aud.audience,
       price: document.getElementById("fPrice").value.trim(),
       promo: document.getElementById("fPromo").value.trim(),
       hasCharacterRef: document.getElementById("fCharRef").checked,
+      photoCount: photoCount,
+      photoAnchor: document.getElementById("fPhotoAnchor").checked && photoCount > 0,
     };
 
     if (!brief.productName) {
       FA.App.toast("Isi nama produk dulu", "err");
+      return;
+    }
+
+    // Deskripsi produk adalah pertahanan utama dari produk "ngarang". Bila
+    // belum diisi, satu-satunya sumber pengganti adalah analisis AI — jadi
+    // hanya izinkan lanjut bila analisis itu memungkinkan.
+    if (!brief.productDescription &&
+        !(FA.App.state.files.length && FA.Vision.available())) {
+      FA.App.toast("Isi deskripsi tampilan produk dulu (bentuk, warna, material)", "err");
+      var descEl = document.getElementById("fProductDesc");
+      if (descEl) descEl.focus();
       return;
     }
 
@@ -355,6 +417,18 @@ FA.App = {
       } else {
         brief.analysis = null;
       }
+
+      // Terakhir: deskripsi produk belum terisi apa pun (analisis gagal atau
+      // tidak mengirim productDescription). Prompt tetap dibuat — aplikasi
+      // tidak boleh gagal — tetapi pengguna diperingatkan apa risikonya.
+      if (!FA.resolveProductDescription(brief, brief.analysis)) {
+        FA.App.toast(
+          "Deskripsi produk kosong — bentuk produk bisa dikarang model. " +
+          "Isi kolom Deskripsi tampilan produk lalu generate ulang.",
+          "err"
+        );
+      }
+
       FA.App.buildFromBrief(brief);
     };
 
@@ -406,6 +480,14 @@ FA.App = {
       notes.push("nama produk");
     }
 
+    // Deskripsi tampilan produk: paling berdampak untuk kesetiaan produk.
+    var descEl = document.getElementById("fProductDesc");
+    if (a.productDescription && descEl && !descEl.value.trim()) {
+      descEl.value = a.productDescription;
+      brief.productDescription = a.productDescription;
+      notes.push("deskripsi produk");
+    }
+
     if (a.suggestedPains && a.suggestedPains.length) {
       var painEl = document.getElementById("fPain");
       if (painEl && !painEl.value.trim()) {
@@ -417,8 +499,14 @@ FA.App = {
 
     if (a.suggestedAudience) {
       var audEl = document.getElementById("fAudience");
-      if (audEl && !audEl.value.trim()) {
-        audEl.value = a.suggestedAudience;
+      if (audEl && !audEl.value) {
+        // Teks saran AI disimpan apa adanya sebagai sapaan (custom) — profil
+        // audiensnya disimpulkan dari kata kuncinya di Conductor Engine.
+        audEl.value = "custom";
+        var audCustom = document.getElementById("fAudienceCustom");
+        audCustom.value = a.suggestedAudience;
+        audCustom.classList.remove("hidden");
+        brief.audienceId = "custom";
         brief.audience = a.suggestedAudience;
         notes.push("target pembeli");
       }
@@ -433,7 +521,7 @@ FA.App = {
   buildFromBrief: function (brief) {
     document.getElementById("progressTitle").textContent = "Merakit 6 prompt scene…";
     document.getElementById("progressSub").textContent =
-      "Menyusun continuity lock dan 7 blok wajib per scene.";
+      "Menyusun continuity lock, product lock, dan 9 blok wajib per scene.";
 
     setTimeout(function () {
       FA.App.markProgress(4, false);
@@ -525,6 +613,9 @@ FA.App = {
     ];
     if (project.enrichmentSource === "ai") {
       pills.push('<span class="pill ai">Narasi diperkaya AI</span>');
+    }
+    if (project.hookAngle) {
+      pills.push('<span class="pill">Angle: ' + FA.esc(project.hookAngle.label) + "</span>");
     }
     if (project.fromLibrary) {
       pills.push('<span class="pill">dari library</span>');
@@ -696,10 +787,13 @@ FA.App = {
     FA.App.clearCategorySuggestion();
     document.getElementById("thumbs").innerHTML = "";
     document.getElementById("fName").value = "";
-    ["fPain", "fAudience", "fPrice", "fPromo"].forEach(function (id) {
+    ["fProductDesc", "fPain", "fAudienceCustom", "fPrice", "fPromo"].forEach(function (id) {
       document.getElementById(id).value = "";
     });
+    document.getElementById("fAudience").value = "";
+    document.getElementById("fAudienceCustom").classList.add("hidden");
     document.getElementById("fCharRef").checked = false;
+    document.getElementById("fPhotoAnchor").checked = true;
     FA.App.setStep(1);
     FA.App.showView("wizard");
     FA.App.refreshGenerateState();
@@ -722,8 +816,12 @@ FA.App = {
     // pengguna. Kalau pengguna sudah memilih sendiri, cukup ditawarkan.
     FA.App.state.demoMode = true;
     document.getElementById("fName").value = "Glow Serum Vitamin C";
+    document.getElementById("fProductDesc").value =
+      "a frosted glass dropper bottle with a brushed gold cap";
     document.getElementById("fPain").value = "kulit kusam dan berminyak di siang hari";
-    document.getElementById("fAudience").value = "wanita 20-30 tahun, pekerja kantoran";
+    document.getElementById("fAudience").value = "custom";
+    document.getElementById("fAudienceCustom").value = "wanita 20-30 tahun, pekerja kantoran";
+    document.getElementById("fAudienceCustom").classList.remove("hidden");
     document.getElementById("fPrice").value = "Rp 89.000";
     document.getElementById("fPromo").value = "diskon 40% hari ini";
     document.getElementById("fPlatform").value = "tiktok";

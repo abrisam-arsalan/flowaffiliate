@@ -256,19 +256,21 @@ Satu tab berisi:
 
 Ini adalah bagian paling penting dari PRD. Kualitas output ditentukan oleh struktur ini.
 
-### 6.1 Anatomi Prompt Satu Scene (7 Blok Wajib)
+### 6.1 Anatomi Prompt Satu Scene (9 Blok Wajib)
 
-Berdasarkan panduan resmi Flow/Veo (subject & action, composition & camera, location & lighting, audio & dialogue) [cite:2c15baf8-1] dan panduan Omni Flash (seluruh scene, single-shot instruction, direct the audio, on-screen text dalam tanda kutip, time-blocking) [cite:50a7fe93-1], setiap prompt scene **wajib** memuat 7 blok berikut:
+Berdasarkan panduan resmi Flow/Veo (subject & action, composition & camera, location & lighting, audio & dialogue) [cite:2c15baf8-1] dan panduan Omni Flash (seluruh scene, single-shot instruction, direct the audio, on-screen text dalam tanda kutip, time-blocking) [cite:50a7fe93-1], setiap prompt scene **wajib** memuat 9 blok berikut:
 
 | # | Blok | Fungsi | Bahasa |
 |---|---|---|---|
-| 1 | **REFERENCE DECLARATION** | Menyatakan peran setiap gambar yang di-upload sebagai ingredient/reference | Inggris |
-| 2 | **CONTINUITY LOCK** | Mengunci identitas, wajah, wardrobe, lokasi, lighting agar konsisten antar scene | Inggris |
-| 3 | **SHOT & SUBJECT** | Subjek, aksi, framing (wide/medium/close-up), satu shot kontinu | Inggris |
-| 4 | **SETTING & LIGHTING** | Lokasi konkret + mood pencahayaan (bukan sekadar "ruangan") | Inggris |
-| 5 | **CAMERA MOTION** | Gerakan kamera eksplisit (slow push-in, handheld tracking, orbit) | Inggris |
-| 6 | **AUDIO & DIALOGUE** | Ambience, SFX, musik, dan **dialog Indonesia dalam tanda kutip** dengan arahan tone | Indonesia (dialog) + Inggris (arahan) |
-| 7 | **ON-SCREEN TEXT & TIMING** | Teks di layar dalam tanda kutip + timecode bila perlu | Indonesia |
+| 1 | **REFERENCE DECLARATION** | Menyatakan peran setiap foto yang di-upload (foto 1 = referensi utama) + deklarasi mode anchor bila aktif | Inggris |
+| 2 | **PRODUCT FIDELITY** | Aturan anti-drift: reproduksi persis foto, larangan kemasan generik & mengarang label, foto menang atas teks | Inggris |
+| 3 | **CONTINUITY LOCK** | Mengunci identitas, wajah, wardrobe, lokasi, lighting + `PRODUCTLOCK` produk antar scene | Inggris |
+| 4 | **SHOT & SUBJECT** | Subjek, aksi, framing (wide/medium/close-up), satu shot kontinu | Inggris |
+| 5 | **SETTING & LIGHTING** | Lokasi konkret + mood pencahayaan (bukan sekadar "ruangan") | Inggris |
+| 6 | **CAMERA MOTION** | Gerakan kamera eksplisit (slow push-in, handheld tracking, orbit) | Inggris |
+| 7 | **AUDIO & DIALOGUE** | Ambience, SFX, musik, dan **dialog Indonesia dalam tanda kutip** dengan arahan tone | Indonesia (dialog) + Inggris (arahan) |
+| 8 | **ON-SCREEN TEXT & TIMING** | Teks di layar dalam tanda kutip + timecode bila perlu | Indonesia |
+| 9 | **OUTPUT** | Durasi, aspect ratio, single continuous shot + instruksi frame awal saat mode anchor aktif | Inggris |
 
 **Prinsip struktural:**
 - **Bahasa teknis Inggris, konten linguistik Indonesia.** Model menaati instruksi sinematik lebih baik dalam Inggris, sementara dialog & teks di layar harus Indonesia agar pengucapan dan rendering teks akurat. Omni Flash menerima prompt bilingual selama detail. [cite:670bd055-2]
@@ -436,6 +438,30 @@ Setiap kategori produk punya playbook dengan 6 scene. Contoh untuk **Skincare**:
 6. `HEALTH_WELLNESS_ROUTINE_v1`
 7. `UNIVERSAL_AFFILIATE_v1` (fallback)
 
+### 6.5 Mode Anchor Foto Produk (Frames-to-Video & Prop Terkunci)
+
+Teks hanya bisa *meminta* model menggambar produk yang sama; yang bisa **menjamin**
+kesetiaan piksel adalah foto itu sendiri sebagai anchor gambar. Karena itu tersedia
+**mode anchor** (default aktif bila ada foto produk, bisa dimatikan lewat checkbox
+*Kunci produk persis dari foto*):
+
+| Jenis scene | Foto dipakai sebagai | Mode di Flow |
+|---|---|---|
+| Produk-hero (`REVEAL`, `DEMO`) | **Frame awal** — video "dimulai" dari foto | Frames to Video |
+| Bertalent (`HOOK`, `PROBLEM`, `PROOF`, `CTA`) | **Prop terkunci** — setara FaceLock untuk karakter | Ingredients to Video |
+
+**Alur dua langkah:**
+
+1. Generate scene produk-hero lebih dulu dari foto → klipnya jadi patokan produk
+   paling konsisten (produknya persis, karena videonya dimulai dari fotonya).
+2. Lanjut scene bertalent dengan foto sebagai ingredient/prop terkunci. Kalau produk
+   masih meleset, perbaiki lewat obrolan di Flow sambil merujuk klip hero tadi.
+
+Mode ini **dimatikan otomatis bila tidak ada foto** — janji "frame awal" tanpa foto
+hanya akan menyesatkan model. Konsistensi deklarasi per scene diperiksa validator
+**V14**, dan panduan "Cara Pakai di Flow" (tab aplikasi & paket export) otomatis
+menyusun ulang langkahnya sesuai mode ini.
+
 ---
 
 ## 7. Spesifikasi Fungsional
@@ -459,6 +485,10 @@ Setiap kategori produk punya playbook dengan 6 scene. Contoh untuk **Skincare**:
 | **F-13** | Regenerate Scene | Regenerate satu scene tanpa mengubah lainnya. | P1 |
 | **F-14** | Library / Riwayat | Simpan project, buka kembali, duplikat. | P1 |
 | **F-15** | Voice Persona Picker | Pilih gender + tone suara (ramah, tegas, antusias, lembut, misterius). | P1 |
+| **F-16** | Product Anchor Mode | Foto produk jadi frame awal (scene hero) / prop terkunci (scene talent) + panduan dua langkah di Flow. Lihat §6.5. | P1 |
+| **F-17** | Product Fidelity Lock | Blok `[PRODUCT FIDELITY]` + `PRODUCTLOCK` + deskripsi tampilan produk wajib + guard label kosong. | P1 |
+| **F-18** | Audience Profile | Profil audiens (nada bicara, subset masalah, hashtag komunitas) + selektor terstruktur dengan opsi custom. Sapaan ketikan pengguna selalu menang. | P1 |
+| **F-19** | Anti-Monoton Engine | Bank treatment per arketipe (shot/setting/camera/sfx/music), 7 hook angle dikunci per project, varian arc slot DEMO (cara pakai / perbandingan / unboxing). | P1 |
 
 ### 7.2 Fitur Fase 2
 
@@ -769,6 +799,7 @@ CTA    : "..."
 | R-8 | Kualitas video Omni Flash di bawah ekspektasi user | Sedang | Sedang | Set ekspektasi di landing; saran generate 360p dulu untuk draft, upscale setelah cocok |
 | R-9 | Fitur "custom voice" Omni tidak tersedia di semua region | Sedang | Sedang | Sediakan fallback narasi teks untuk dubbing eksternal (CapCut TTS) |
 | R-10 | Pesaing meniru library prompt | Rendah | Tinggi | Pertahankan keunggulan di Continuity Engine & playbook lokal yang dikurasi manual |
+| R-11 | Produk di video tidak menyerupai produk asli (drift kemasan/label) | Tinggi | Tinggi | Blok `PRODUCT FIDELITY` + `PRODUCTLOCK`, deskripsi produk wajib, guard label kosong, dan Mode Anchor foto (§6.5) |
 
 ---
 
